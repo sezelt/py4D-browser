@@ -1,6 +1,7 @@
 import py4DSTEM
 from PyQt5.QtWidgets import QFileDialog, QMessageBox, QApplication
 import h5py
+import gc
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -179,14 +180,27 @@ def load_file(self: "DataViewer", filepath, mmap=False, binning=1):
     self.signal_datacube_changed.emit()
 
 
-def set_datacube(self: "DataViewer", datacube, window_title):
+def set_datacube(self: "DataViewer", datacube, refresh=True):
+    """
+    Replace the currently loaded datacube.
+
+    When ``refresh`` is True (the default), the same machinery that runs
+    after a dataset is loaded is triggered: both views are reset and
+    ``signal_datacube_changed`` is emitted. Pass ``refresh=False`` to swap
+    in the new cube without redrawing or notifying listeners, e.g. to stage
+    a replacement and refresh later.
+
+    The previous datacube is released and the garbage collector is run so
+    that its memory is reclaimed (including reference cycles that
+    refcounting alone cannot break) rather than lingering alongside the
+    replacement.
+    """
     self.datacube = datacube
-
-    self.update_diffraction_space_view(reset=True)
-    self.update_real_space_view(reset=True)
-
-    self.setWindowTitle(window_title)
-    self.signal_datacube_changed.emit()
+    if refresh:
+        self.update_diffraction_space_view(reset=True)
+        self.update_real_space_view(reset=True)
+        self.signal_datacube_changed.emit()
+    gc.collect()
 
 
 def reshape_data(self: "DataViewer"):

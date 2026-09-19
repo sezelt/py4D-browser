@@ -23,12 +23,8 @@ from py4D_browser.utils import (
     DetectorInfo,
     RectangleGeometry,
     CircleGeometry,
+    format_unit,
 )
-
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from py4D_browser import DataViewer
 
 
 class CalibrationPlugin(QWidget):
@@ -36,13 +32,16 @@ class CalibrationPlugin(QWidget):
     # required for py4DGUI to recognize this as a plugin.
     plugin_id = "py4DGUI.internal.calibration"
 
+    # the plugin API version this plugin was written against
+    api_version = (1, 0)
+
     uses_single_action = True
     display_name = "Calibrate..."
 
-    def __init__(self, parent: "DataViewer", plugin_action, **kwargs):
+    def __init__(self, api, plugin_action, **kwargs):
         super().__init__()
 
-        self.parent = parent
+        self.api = api
 
         plugin_action.triggered.connect(self.launch_dialog)
 
@@ -50,9 +49,9 @@ class CalibrationPlugin(QWidget):
         pass
 
     def launch_dialog(self):
-        parent = self.parent
+        api = self.api
         # If the selector has a size, figure that out
-        detector_info: DetectorInfo = parent.get_diffraction_detector()
+        detector_info: DetectorInfo = api.get_diffraction_detector()
 
         match detector_info["shape"]:
             case DetectorShape.CIRCLE:
@@ -60,13 +59,17 @@ class CalibrationPlugin(QWidget):
                 selector_size = circle_geometry["R"]
             case _:
                 selector_size = None
-                parent.statusBar().showMessage(
+                api.status_bar.showMessage(
                     "Use a Circle selection to calibrate based on a known spacing...",
                     5_000,
                 )
 
+        # dialogs need a QWidget parent; the API object exposes the window
+        # for exactly this purpose
         dialog = CalibrateDialog(
-            parent.datacube, parent=parent, diffraction_selector_size=selector_size
+            api.datacube,
+            parent=api.qt_window,
+            diffraction_selector_size=selector_size,
         )
         dialog.open()
 
@@ -319,23 +322,18 @@ class CalibrateDialog(QDialog):
 
         self.datacube.calibration.set_QR_flip(self.transpose_checkbox.isChecked())
 
-        from py4D_browser.utils import format_unit
-
-        self.parent.real_space_scale_bar.pixel_size = (
-            self.datacube.calibration.get_R_pixel_size()
+        # use the versioned API's set_scalebar rather than poking the
+        # scale bar objects directly
+        self.parent.set_scalebar(
+            "real_space",
+            self.datacube.calibration.get_R_pixel_size(),
+            format_unit(self.datacube.calibration.get_R_pixel_units()),
         )
-        self.parent.real_space_scale_bar.units = format_unit(
-            self.datacube.calibration.get_R_pixel_units()
+        self.parent.set_scalebar(
+            "diffraction",
+            self.datacube.calibration.get_Q_pixel_size(),
+            format_unit(self.datacube.calibration.get_Q_pixel_units()),
         )
-        self.parent.real_space_scale_bar.updateBar()
-
-        self.parent.diffraction_scale_bar.pixel_size = (
-            self.datacube.calibration.get_Q_pixel_size()
-        )
-        self.parent.diffraction_scale_bar.units = format_unit(
-            self.datacube.calibration.get_Q_pixel_units()
-        )
-        self.parent.diffraction_scale_bar.updateBar()
 
         print("New calibration")
         print(self.datacube.calibration)

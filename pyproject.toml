@@ -29,6 +29,12 @@ dependencies = [
   "click",
 ]
 
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-qt",
+]
+
 [project.scripts]
 py4DGUI = "py4D_browser.runGUI:launch"
 

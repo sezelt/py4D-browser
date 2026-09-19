@@ -17,13 +17,16 @@ class MetadataViewer(QWidget):
     # required for py4DGUI to recognize this as a plugin.
     plugin_id = "py4DGUI.internal.metadata"
 
+    # the plugin API version this plugin was written against
+    api_version = (1, 0)
+
     uses_single_action = True
     display_name = "Show Metadata..."
 
-    def __init__(self, parent, plugin_action, **kwargs):
+    def __init__(self, api, plugin_action, **kwargs):
         super().__init__()
 
-        self.parent = parent
+        self.api = api
 
         plugin_action.triggered.connect(self.launch_dialog)
 
@@ -31,7 +34,10 @@ class MetadataViewer(QWidget):
         pass
 
     def launch_dialog(self):
-        dialog = MetadataDialog(parent=self.parent)
+        # dialogs need a QWidget parent; the API object exposes the window
+        # for exactly this purpose. `datacube` reads keep working since the
+        # dialog's parent is the DataViewer itself.
+        dialog = MetadataDialog(parent=self.api.qt_window)
         dialog.open()
 
 

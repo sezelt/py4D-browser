@@ -28,13 +28,16 @@ class tcBFPlugin(QWidget):
     # required for py4DGUI to recognize this as a plugin.
     plugin_id = "py4DGUI.internal.tcBF"
 
+    # the plugin API version this plugin was written against
+    api_version = (1, 0)
+
     uses_plugin_menu = True
     display_name = "Tilt-Corrected BF"
 
-    def __init__(self, parent, plugin_menu, **kwargs):
+    def __init__(self, api, plugin_menu, **kwargs):
         super().__init__()
 
-        self.parent = parent
+        self.api = api
 
         manual_action = plugin_menu.addAction("Manual tcBF...")
         manual_action.triggered.connect(self.launch_manual)
@@ -46,32 +49,34 @@ class tcBFPlugin(QWidget):
         pass  # perform any shutdown activities
 
     def launch_manual(self):
-        dialog = ManualTCBFDialog(parent=self.parent)
+        # dialogs need a QWidget parent; the API object exposes the window
+        # for exactly this purpose
+        dialog = ManualTCBFDialog(parent=self.api.qt_window)
         dialog.show()
 
     def launch_auto(self):
-        parent = self.parent
+        api = self.api
 
-        detector: DetectorInfo = self.parent.get_diffraction_detector()
+        detector: DetectorInfo = self.api.get_diffraction_detector()
 
         if detector["shape"] is DetectorShape.POINT:
-            parent.statusBar().showMessage("tcBF requires an area detector!", 5_000)
+            api.status_bar.showMessage("tcBF requires an area detector!", 5_000)
             return
 
         if (
-            parent.datacube.calibration.get_R_pixel_units == "pixels"
-            or parent.datacube.calibration.get_Q_pixel_units == "pixels"
+            api.datacube.calibration.get_R_pixel_units == "pixels"
+            or api.datacube.calibration.get_Q_pixel_units == "pixels"
         ):
-            parent.statusBar().showMessage("Auto tcBF requires caibrated data", 5_000)
+            api.status_bar.showMessage("Auto tcBF requires caibrated data", 5_000)
             return
 
         # do tcBF!
-        parent.statusBar().showMessage("Reconstructing... (This may take a while)")
-        parent.qtapp.processEvents()
+        api.status_bar.showMessage("Reconstructing... (This may take a while)")
+        api.qtapp.processEvents()
 
         tcBF = py4DSTEM.process.phase.Parallax(
             energy=300e3,
-            datacube=parent.datacube,
+            datacube=api.datacube,
         )
         tcBF.preprocess(
             dp_mask=detector["mask"],
@@ -84,11 +89,11 @@ class tcBFPlugin(QWidget):
             plot_convergence=False,
         )
 
-        parent.set_virtual_image(
+        api.set_virtual_image(
             tcBF.recon_BF,
             reset=True,
-            pixel_size=parent.datacube.calibration.get_R_pixel_size(),
-            pixel_units=parent.datacube.calibration.get_R_pixel_units(),
+            pixel_size=api.datacube.calibration.get_R_pixel_size(),
+            pixel_units=api.datacube.calibration.get_R_pixel_units(),
         )
 
 

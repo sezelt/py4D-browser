@@ -353,12 +353,8 @@ def set_virtual_image(
 ):
     self.unscaled_realspace_image = vimg
     self._render_virtual_image(reset=reset)
-    if pixel_size is not None:
-        self.real_space_scale_bar.pixel_size = pixel_size
-    if pixel_units is not None:
-        self.real_space_scale_bar.units = pixel_units
     if pixel_size is not None or pixel_units is not None:
-        self.real_space_scale_bar.updateBar()
+        self.set_scalebar("real_space", pixel_size, pixel_units)
     self.signal_virtual_image_data_changed.emit()
 
 
@@ -461,12 +457,8 @@ def set_diffraction_image(
 ):
     self.unscaled_diffraction_image = DP
     self._render_diffraction_image(reset=reset)
-    if pixel_size is not None:
-        self.diffraction_scale_bar.pixel_size = pixel_size
-    if pixel_units is not None:
-        self.diffraction_scale_bar.units = pixel_units
     if pixel_size is not None or pixel_units is not None:
-        self.diffraction_scale_bar.updateBar()
+        self.set_scalebar("diffraction", pixel_size, pixel_units)
     self.signal_diffraction_data_changed.emit()
 
 
@@ -525,7 +517,9 @@ def update_fft_view(self: "DataViewer", mode: Optional[str] = None):
     vimg = self.unscaled_realspace_image
     DP = self.unscaled_diffraction_image
 
-    if vimg is None or DP is None:
+    if vimg is None or DP is None or self.datacube is None:
+        # Without a loaded dataset there is no calibration to derive the
+        # result view's scale from; skip rather than crash.
         return
 
     if mode == "Virtual Image FFT":
@@ -605,9 +599,40 @@ def set_result_image(
     self.fft_widget_text.setText(title)
     self._render_result_image(reset=reset)
 
-    self.fft_scale_bar.pixel_size = pixel_size
-    self.fft_scale_bar.units = pixel_units
-    self.fft_scale_bar.updateBar()
+    self.set_scalebar("result", pixel_size, pixel_units)
+
+
+def set_scalebar(self: "DataViewer", view, pixel_size=None, units=None):
+    """
+    Set the scale bar of one of the image views to an explicit pixel size
+    and units string.
+
+    view is one of "diffraction", "real_space", or "result". Either
+    ``pixel_size`` and/or ``units`` may be omitted (None) to leave that
+    field unchanged; if both are omitted the bar is left as-is.
+
+    This is the supported way for plugins to update a scale bar (in
+    preference to touching the *_scale_bar objects directly); the image
+    setters delegate their scale updates here.
+    """
+    view_map = {
+        "diffraction": self.diffraction_scale_bar,
+        "real_space": self.real_space_scale_bar,
+        "result": self.fft_scale_bar,
+    }
+    try:
+        scale_bar = view_map[view]
+    except (KeyError, TypeError):
+        raise ValueError(
+            f"Unknown view {view!r}; expected one of {sorted(view_map)}"
+        ) from None
+
+    if pixel_size is not None:
+        scale_bar.pixel_size = pixel_size
+    if units is not None:
+        scale_bar.units = units
+    if pixel_size is not None or units is not None:
+        scale_bar.updateBar()
 
 
 def _render_result_image(self: "DataViewer", reset=False):
