@@ -64,22 +64,21 @@ class CalibrationPlugin(QWidget):
                     5_000,
                 )
 
-        # dialogs need a QWidget parent; the API object exposes the window
-        # for exactly this purpose
         dialog = CalibrateDialog(
-            api.datacube,
-            parent=api.qt_window,
+            api,
             diffraction_selector_size=selector_size,
         )
         dialog.open()
 
 
 class CalibrateDialog(QDialog):
-    def __init__(self, datacube, parent, diffraction_selector_size=None):
-        super().__init__(parent=parent)
+    def __init__(self, api, diffraction_selector_size=None):
+        # Parented to the API's dialog-parent widget so it shows over the
+        # main window; all data/method access goes through the API object.
+        super().__init__(parent=api.qt_window)
 
-        self.datacube = datacube
-        self.parent = parent
+        self.api = api
+        self.datacube = api.datacube
         self.diffraction_selector_size = diffraction_selector_size
 
         layout = QVBoxLayout(self)
@@ -324,12 +323,12 @@ class CalibrateDialog(QDialog):
 
         # use the versioned API's set_scalebar rather than poking the
         # scale bar objects directly
-        self.parent.set_scalebar(
+        self.api.set_scalebar(
             "real_space",
             self.datacube.calibration.get_R_pixel_size(),
             format_unit(self.datacube.calibration.get_R_pixel_units()),
         )
-        self.parent.set_scalebar(
+        self.api.set_scalebar(
             "diffraction",
             self.datacube.calibration.get_Q_pixel_size(),
             format_unit(self.datacube.calibration.get_Q_pixel_units()),

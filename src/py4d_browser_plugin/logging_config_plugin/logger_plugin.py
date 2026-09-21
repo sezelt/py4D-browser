@@ -34,17 +34,16 @@ class LoggingConfigurationPlugin(QWidget):
         pass
 
     def launch_dialog(self):
-        # dialogs need a QWidget parent; the API object exposes the window
-        # for exactly this purpose
-        dialog = LoggerDialog(parent=self.api.qt_window)
+        dialog = LoggerDialog(self.api)
         dialog.open()
 
 
 class LoggerDialog(QDialog):
-    def __init__(self, parent):
-        super().__init__(parent=parent)
+    def __init__(self, api):
+        # Parented to the API's dialog-parent widget so it shows over the
+        # main window.
+        super().__init__(parent=api.qt_window)
 
-        self.parent = parent
         self.layout = QVBoxLayout(self)
 
         ####### LAYOUT ########

@@ -275,8 +275,10 @@ def export_virtual_image(self: "DataViewer", im_format: str, im_type: str):
     filename = self.get_savefile_name(im_format)
 
     if im_type == "image":
-        view = self.real_space_widget
-        rawimg = self.unscaled_realspace_image
+        # Export whatever is currently displayed in the virtual-image pane:
+        # the built-in image on the default tab, or a plugin tab's image.
+        view = self._visible_real_space_widget
+        rawimg = self.current_virtual_image
     elif im_type == "diffraction":
         view = self.diffraction_space_widget
         rawimg = self.unscaled_diffraction_image
@@ -307,7 +309,7 @@ def export_virtual_image(self: "DataViewer", im_format: str, im_type: str):
 
 
 def copy_vimg_to_clipboard(self: "DataViewer"):
-    img = self.real_space_widget.getImageItem()
+    img = self._visible_real_space_widget.getImageItem()
 
     if img._renderRequired:
         img.render()

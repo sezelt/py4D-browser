@@ -8,6 +8,9 @@ from PyQt5.QtWidgets import (
     QAction,
     QHBoxLayout,
     QSplitter,
+    QTabWidget,
+    QTabBar,
+    QStyle,
     QActionGroup,
     QLabel,
     QToolTip,
@@ -22,12 +25,14 @@ import numpy as np
 from functools import partial
 from pathlib import Path
 import os
+import gc
 import platformdirs
 from showinfm import show_in_file_manager
 
 from py4D_browser.utils import VLine, LatchingButton, strtobool, try_get_cmap
 from py4D_browser.version import __version__
 from py4D_browser.scalebar import ScaleBar
+from py4D_browser.virtual_image_tabs import VirtualImageTab
 
 
 class DataViewer(QMainWindow):
@@ -93,6 +98,10 @@ class DataViewer(QMainWindow):
 
     signal_diffraction_data_changed = QtCore.pyqtSignal()
     signal_virtual_image_data_changed = QtCore.pyqtSignal()
+    # Emitted whenever the *currently visible* virtual image changes: on an
+    # update to the built-in (default) tab, and on an update to, or switch to,
+    # a plugin tab. This is the single signal the result pane is driven by.
+    signal_current_virtual_image_changed = QtCore.pyqtSignal()
     signal_datacube_changed = QtCore.pyqtSignal()
 
     def __init__(
@@ -141,6 +150,13 @@ class DataViewer(QMainWindow):
         self.unscaled_diffraction_image: Optional[np.ndarray] = None
         self.unscaled_realspace_image: Optional[np.ndarray] = None
         self.unscaled_fft_image: Optional[np.ndarray] = None
+
+        # Plugin-created virtual-image tabs (see virtual_image_tabs.py). The
+        # built-in virtual image lives in the default tab (index 0 of
+        # ``virtual_image_tab_widget``) and is NOT listed here; this list only
+        # ever holds the plugin tabs, in the same order as the tab bar (offset
+        # by one, since the default tab occupies index 0).
+        self.virtual_image_tabs: list = []
 
         # Reset stored state if so asked:
         if reset_state:
@@ -739,8 +755,32 @@ class DataViewer(QMainWindow):
         layout.addWidget(self.diffraction_space_widget, 1)
 
         # add a resizeable layout for the vimg and FFT
+        #
+        # The virtual-image pane is a QTabWidget. Tab 0 is the built-in
+        # (default) virtual image — the existing real_space_widget — which is
+        # not closable and not part of the plugin tab list. Plugins add
+        # additional tabs (create_virtual_image_tab) which the user can close.
+        # The tab bar is hidden until a second tab exists (see _refresh_tab_bar).
+        #
+        # Plugin tabs are closable via the tab bar's *native* close buttons
+        # (setTabsClosable). The style lays each close button out alongside the
+        # tab text, so a long title elides to make room for the "X" rather than
+        # running underneath a separately-placed button widget. The default tab
+        # is kept unclosable by suppressing its close button in _refresh_tab_bar
+        # (setTabButton(0, ..., None)), so it has no "X".
+        self.virtual_image_tab_widget = QTabWidget()
+        self.virtual_image_tab_widget.addTab(self.real_space_widget, "Virtual Image")
+        self.virtual_image_tab_widget.setTabsClosable(True)
+        self.virtual_image_tab_widget.tabBar().tabCloseRequested.connect(
+            self._on_tab_close_requested
+        )
+        self.virtual_image_tab_widget.currentChanged.connect(
+            self._on_visible_virtual_image_changed
+        )
+        self._refresh_tab_bar()
+
         rightside = QSplitter()
-        rightside.addWidget(self.real_space_widget)
+        rightside.addWidget(self.virtual_image_tab_widget)
         rightside.addWidget(self.fft_widget)
         rightside.setOrientation(QtCore.Qt.Vertical)
         # set a sensible ratio for the sizes
@@ -800,8 +840,13 @@ class DataViewer(QMainWindow):
             status_bar=self.statusBar(),
             latched=True,
         )
+        # apply the configured autoscale (percentile) range on click, rather
+        # than pyqtgraph's full-range autoLevels, so the user's chosen range is
+        # respected on every press
         self.diffraction_rescale_button.activated.connect(
-            self.diffraction_space_widget.autoLevels
+            partial(
+                self._render_diffraction_image, reset=False, auto_level=True
+            )
         )
         self.statusBar().addPermanentWidget(self.diffraction_rescale_button)
 
@@ -811,7 +856,7 @@ class DataViewer(QMainWindow):
             latched=True,
         )
         self.realspace_rescale_button.activated.connect(
-            self.real_space_widget.autoLevels
+            partial(self._render_virtual_image, reset=False, auto_level=True)
         )
         self.statusBar().addPermanentWidget(self.realspace_rescale_button)
 
@@ -820,8 +865,198 @@ class DataViewer(QMainWindow):
             status_bar=self.statusBar(),
             latched=True,
         )
-        self.result_rescale_button.activated.connect(self.fft_widget.autoLevels)
+        self.result_rescale_button.activated.connect(
+            partial(self._render_result_image, reset=False, auto_level=True)
+        )
         self.statusBar().addPermanentWidget(self.result_rescale_button)
+
+    ########## virtual-image tabs (plugin API v1.1) ##########
+
+    def create_virtual_image_tab(self, title: str) -> VirtualImageTab:
+        """
+        Create and show a new virtual-image tab the plugin can drive.
+
+        The returned :class:`~py4D_browser.virtual_image_tabs.VirtualImageTab`
+        is added to the virtual-image pane (behind the default, built-in tab)
+        and can be driven with ``set_image``, ``set_scalebar``, and
+        ``add_roi`` / ``add_annotation``. It is not auto-selected: the built-in
+        virtual image stays visible until the user clicks the new tab. Closing
+        the tab (by the user, or via ``close``) cleanly detaches any ROIs and
+        annotations and frees the widget.
+
+        The new tab is seeded with the browser's default virtual-image colormap
+        (the ``gui/realspace_colormap`` setting, the same default the built-in
+        pane starts with), so a fresh tab matches the browser's default look.
+        Each tab still keeps its own colormap from then on (see
+        :attr:`VirtualImageTab.colormap`).
+        """
+        tab = VirtualImageTab(title, self)
+
+        # Give the tab the browser's default virtual-image colormap.
+        self._seed_tab_colormap(tab)
+
+        # With setTabsClosable(True) active, this new tab automatically gets the
+        # tab bar's native close button; the default tab's is suppressed by the
+        # _refresh_tab_bar() call below.
+        self.virtual_image_tab_widget.addTab(tab.widget, title)
+        self.virtual_image_tabs.append(tab)
+        self._refresh_tab_bar()
+        return tab
+
+    def _seed_tab_colormap(self, tab: VirtualImageTab):
+        """
+        Seed a new tab's colormap with the browser's default virtual-image
+        colormap (the ``gui/realspace_colormap`` setting, default ``"thermal"``),
+        so a fresh tab matches the built-in pane's default appearance.
+
+        This mirrors how the built-in real-space pane is given its default
+        colormap in ``setup_views``: read the setting, resolve it through the
+        browser's colormap lookup, and apply it if it resolves. Each tab keeps
+        its own colormap from then on (see
+        :attr:`~py4D_browser.virtual_image_tabs.VirtualImageTab.colormap`), so
+        a user who changes one tab's colormap does not move the others.
+        """
+        cmap_name = self.settings.value("gui/realspace_colormap", "thermal")
+        cmap = try_get_cmap(cmap_name)
+        if cmap is not None:
+            tab.colormap = cmap
+
+    def close_virtual_image_tab(self, tab: VirtualImageTab):
+        """
+        Close a virtual-image tab, detaching its ROIs/annotations and freeing
+        its widget. Idempotent: a no-op if the tab is already closed.
+        """
+        if tab is None or tab.closed:
+            return
+
+        # Detach any ROIs/annotations the plugin attached so they are freed
+        # (or remain reusable by the plugin) independently of the widget we
+        # are about to delete. We do not delete the items themselves.
+        for item in list(tab.rois) + list(tab.annotations):
+            scene = item.scene()
+            if scene is not None:
+                scene.removeItem(item)
+            item.setParentItem(None)
+        tab._rois = []
+        tab._annotations = []
+
+        # Remove the tab from the pane and free its widget. The tab bar's native
+        # close button for this tab goes away with the tab (no separate widget to
+        # free). Removing the currently-visible tab fires currentChanged, which
+        # (below) notifies listeners that the visible virtual image changed.
+        widx = self.virtual_image_tab_widget.indexOf(tab.widget)
+        if widx != -1:
+            self.virtual_image_tab_widget.removeTab(widx)
+        tab.widget.deleteLater()
+
+        if tab in self.virtual_image_tabs:
+            self.virtual_image_tabs.remove(tab)
+
+        tab._closed = True
+        self._refresh_tab_bar()
+        gc.collect()
+
+    def _on_tab_close_requested(self, index: int):
+        # The native close button fires this with the tab's index. Tab 0 is the
+        # built-in default tab and has no close button; guard against it anyway.
+        # (The index is resolved at click time, so it always refers to the tab
+        # whose button was pressed, regardless of other tabs closing first.)
+        if index <= 0:
+            return
+        self.close_virtual_image_tab(self.virtual_image_tabs[index - 1])
+
+    def _tab_close_button_side(self):
+        """
+        The :class:`QTabBar` side the native close button is drawn on, per the
+        active style (RightSide on most platforms, LeftSide on macOS). Used to
+        suppress the default tab's close button wherever the style actually
+        puts it, so it is hidden on either side.
+        """
+        tab_widget = self.virtual_image_tab_widget
+        tab_bar = tab_widget.tabBar()
+        side = tab_widget.style().styleHint(
+            QStyle.SH_TabBar_CloseButtonPosition, None, tab_bar
+        )
+        # SH_TabBar_CloseButtonPosition is QTabBar.RightSide (0) or
+        # QTabBar.LeftSide (1).
+        return QTabBar.LeftSide if side == QTabBar.LeftSide else QTabBar.RightSide
+
+    def _refresh_tab_bar(self):
+        """
+        Keep the tab bar's visibility and close-buttons in the desired state:
+        hidden when only the default tab exists, and never showing a close
+        button on the (unclosable) default tab.
+        """
+        tab_widget = self.virtual_image_tab_widget
+        tab_bar = tab_widget.tabBar()
+        tab_bar.setVisible(tab_widget.count() > 1)
+        tab_bar.setTabButton(0, self._tab_close_button_side(), None)
+
+    def _on_visible_virtual_image_changed(self, _index: int):
+        # The visible tab changed (user switch, or a visible tab was closed).
+        self.signal_current_virtual_image_changed.emit()
+
+    @property
+    def current_virtual_image(self):
+        """
+        The raw array currently shown in the virtual-image pane: the built-in
+        image when the default tab is visible, else the visible plugin tab's
+        last-set image.
+        """
+        # ``virtual_image_tab_widget`` doesn't exist until setup_views();
+        # during early init (menus are set up first) treat it as the default
+        # tab being visible.
+        index = (
+            self.virtual_image_tab_widget.currentIndex()
+            if getattr(self, "virtual_image_tab_widget", None) is not None
+            else 0
+        )
+        if index <= 0:
+            return self.unscaled_realspace_image
+        tabs = self.virtual_image_tabs
+        if index - 1 < len(tabs):
+            return tabs[index - 1].image
+        return self.unscaled_realspace_image
+
+    @property
+    def _visible_real_space_widget(self):
+        """
+        The ``pg.ImageView`` currently shown in the virtual-image pane: the
+        built-in real-space widget when the default tab is visible, else the
+        visible plugin tab's widget.
+        """
+        index = (
+            self.virtual_image_tab_widget.currentIndex()
+            if getattr(self, "virtual_image_tab_widget", None) is not None
+            else 0
+        )
+        if index <= 0:
+            return self.real_space_widget
+        tabs = self.virtual_image_tabs
+        if index - 1 < len(tabs):
+            return tabs[index - 1].widget
+        return self.real_space_widget
+
+    def is_virtual_image_tab_visible(self, tab: VirtualImageTab) -> bool:
+        """True if ``tab`` is the currently-visible virtual-image tab."""
+        index = (
+            self.virtual_image_tab_widget.currentIndex()
+            if getattr(self, "virtual_image_tab_widget", None) is not None
+            else 0
+        )
+        if index <= 0:
+            return False
+        tabs = self.virtual_image_tabs
+        if index - 1 < len(tabs):
+            return tabs[index - 1] is tab
+        return False
+
+    def _update_tab_title(self, tab: VirtualImageTab):
+        """Update the pane's tab label for ``tab`` to its current title."""
+        for i in range(self.virtual_image_tab_widget.count()):
+            if self.virtual_image_tab_widget.widget(i) is tab.widget:
+                self.virtual_image_tab_widget.setTabText(i, tab.title)
+                break
 
     def resizeEvent(self, event):
         # Store window size for next run

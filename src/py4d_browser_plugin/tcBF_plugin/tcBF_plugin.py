@@ -23,13 +23,27 @@ from py4D_browser.utils import (
 import py4DSTEM
 
 
+def _get_or_create_tcbf_tab(viewer, title="tcBF"):
+    """
+    Return the existing "tcBF" virtual-image tab if one is open, else create
+    it. Reusing the tab means re-running tcBF updates the same pane instead of
+    piling up a new tab each time. ``viewer`` is anything exposing
+    ``virtual_image_tabs`` and ``create_virtual_image_tab`` (the API object or
+    the DataViewer itself).
+    """
+    for tab in viewer.virtual_image_tabs:
+        if tab.title == title:
+            return tab
+    return viewer.create_virtual_image_tab(title)
+
+
 class tcBFPlugin(QWidget):
 
     # required for py4DGUI to recognize this as a plugin.
     plugin_id = "py4DGUI.internal.tcBF"
 
     # the plugin API version this plugin was written against
-    api_version = (1, 0)
+    api_version = (1, 1)
 
     uses_plugin_menu = True
     display_name = "Tilt-Corrected BF"
@@ -46,12 +60,14 @@ class tcBFPlugin(QWidget):
         auto_action.triggered.connect(self.launch_auto)
 
     def close(self):
-        pass  # perform any shutdown activities
+        # Close the tcBF tab (if open) when the plugin is unloaded, so its
+        # widget, ROIs, and annotations are cleaned up with the plugin.
+        for tab in self.api.virtual_image_tabs:
+            if tab.title == "tcBF":
+                self.api.close_virtual_image_tab(tab)
 
     def launch_manual(self):
-        # dialogs need a QWidget parent; the API object exposes the window
-        # for exactly this purpose
-        dialog = ManualTCBFDialog(parent=self.api.qt_window)
+        dialog = ManualTCBFDialog(self.api)
         dialog.show()
 
     def launch_auto(self):
@@ -89,7 +105,8 @@ class tcBFPlugin(QWidget):
             plot_convergence=False,
         )
 
-        api.set_virtual_image(
+        tab = _get_or_create_tcbf_tab(api)
+        tab.set_image(
             tcBF.recon_BF,
             reset=True,
             pixel_size=api.datacube.calibration.get_R_pixel_size(),
@@ -98,10 +115,13 @@ class tcBFPlugin(QWidget):
 
 
 class ManualTCBFDialog(QDialog):
-    def __init__(self, parent):
-        super().__init__(parent=parent)
+    def __init__(self, api):
+        # The dialog is parented to the API's dialog-parent widget so it
+        # shows over the main window; all data/method access goes through the
+        # versioned API object rather than the raw viewer.
+        super().__init__(parent=api.qt_window)
 
-        self.parent = parent
+        self.api = api
 
         layout = QVBoxLayout(self)
 
@@ -142,21 +162,20 @@ class ManualTCBFDialog(QDialog):
         layout.addLayout(button_layout)
 
     def reconstruct(self):
-        datacube = self.parent.datacube
+        api = self.api
+        datacube = api.datacube
 
         # tcBF requires an area detector for generating the mask
-        detector: DetectorInfo = self.parent.get_diffraction_detector()
+        detector: DetectorInfo = api.get_diffraction_detector()
 
         if detector["shape"] is DetectorShape.POINT:
-            self.parent.statusBar().showMessage(
-                "tcBF requires an area detector!", 5_000
-            )
+            api.status_bar.showMessage("tcBF requires an area detector!", 5_000)
             return
 
         mask = detector["mask"]
 
         if self.max_shift_box.text() == "":
-            self.parent.statusBar().showMessage("Max Shift must be specified")
+            api.status_bar.showMessage("Max Shift must be specified")
             return
 
         rotation = np.radians(float(self.rotation_box.text() or 0.0))
@@ -216,7 +235,7 @@ class ManualTCBFDialog(QDialog):
         for mx, my in tqdm(
             img_indices,
             desc="Shifting images",
-            file=StatusBarWriter(self.parent.statusBar()),
+            file=StatusBarWriter(api.status_bar),
             mininterval=1.0,
         ):
             if mask[mx, my]:
@@ -245,9 +264,10 @@ class ManualTCBFDialog(QDialog):
         if pad:
             reconstruction = reconstruction[pad_width:-pad_width, pad_width:-pad_width]
 
-        self.parent.set_virtual_image(
+        tab = _get_or_create_tcbf_tab(api)
+        tab.set_image(
             reconstruction,
             reset=True,
-            pixel_size=self.parent.datacube.calibration.get_R_pixel_size(),
-            pixel_units=self.parent.datacube.calibration.get_R_pixel_units(),
+            pixel_size=api.datacube.calibration.get_R_pixel_size(),
+            pixel_units=api.datacube.calibration.get_R_pixel_units(),
         )

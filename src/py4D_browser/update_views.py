@@ -356,10 +356,23 @@ def set_virtual_image(
     if pixel_size is not None or pixel_units is not None:
         self.set_scalebar("real_space", pixel_size, pixel_units)
     self.signal_virtual_image_data_changed.emit()
+    # The built-in virtual image is the default tab (index 0). If it is the
+    # currently-visible tab, its update also changes the "current virtual
+    # image" that the result machinery follows. (If a plugin tab is visible,
+    # this update does not affect what's on screen, so no notification.)
+    if self.virtual_image_tab_widget.currentIndex() == 0:
+        self.signal_current_virtual_image_changed.emit()
 
 
-def _render_virtual_image(self: "DataViewer", reset=False):
+def _render_virtual_image(
+    self: "DataViewer", reset=False, auto_level: Optional[bool] = None
+):
     vimg = self.unscaled_realspace_image
+
+    if vimg is None:
+        # no image loaded yet (e.g. an autoscale request fired before the
+        # first datacube was shown); nothing to render
+        return
 
     # for 2D images, use the scaling set by the user
     # for RGB (3D) images, always scale linear
@@ -376,7 +389,8 @@ def _render_virtual_image(self: "DataViewer", reset=False):
         else:
             raise ValueError("Mode not recognized")
 
-        auto_level = reset or self.realspace_rescale_button.latched
+        if auto_level is None:
+            auto_level = reset or self.realspace_rescale_button.latched
 
         self.real_space_widget.setImage(
             new_view.T,
@@ -462,8 +476,15 @@ def set_diffraction_image(
     self.signal_diffraction_data_changed.emit()
 
 
-def _render_diffraction_image(self: "DataViewer", reset=False):
+def _render_diffraction_image(
+    self: "DataViewer", reset=False, auto_level: Optional[bool] = None
+):
     DP = self.unscaled_diffraction_image
+
+    if DP is None:
+        # no image loaded yet (e.g. an autoscale request fired before the
+        # first datacube was shown); nothing to render
+        return
 
     scaling_mode = self.diff_scaling_group.checkedAction().text().replace("&", "")
     assert scaling_mode in ["Linear", "Log", "Square Root"]
@@ -488,7 +509,8 @@ def _render_diffraction_image(self: "DataViewer", reset=False):
     for t, m in zip(stats_text, self.diffraction_statistics_actions):
         m.setText(t)
 
-    auto_level = reset or self.diffraction_rescale_button.latched
+    if auto_level is None:
+        auto_level = reset or self.diffraction_rescale_button.latched
 
     self.diffraction_space_widget.setImage(
         new_view.T,
@@ -514,7 +536,10 @@ def update_fft_view(self: "DataViewer", mode: Optional[str] = None):
 
     mode = mode or self.result_source_action_group.checkedAction().text()
 
-    vimg = self.unscaled_realspace_image
+    # Read the *currently visible* virtual image (built-in default tab or a
+    # plugin tab) rather than always the built-in image, so the result pane
+    # follows whatever is on display in the virtual-image pane.
+    vimg = self.current_virtual_image
     DP = self.unscaled_diffraction_image
 
     if vimg is None or DP is None or self.datacube is None:
@@ -635,8 +660,15 @@ def set_scalebar(self: "DataViewer", view, pixel_size=None, units=None):
         scale_bar.updateBar()
 
 
-def _render_result_image(self: "DataViewer", reset=False):
+def _render_result_image(
+    self: "DataViewer", reset=False, auto_level: Optional[bool] = None
+):
     vimg = self.unscaled_fft_image
+
+    if vimg is None:
+        # no image loaded yet (e.g. an autoscale request fired before the
+        # first datacube was shown); nothing to render
+        return
 
     # for 2D images, use the scaling set by the user
     # for RGB (3D) images, always scale linear
@@ -653,7 +685,8 @@ def _render_result_image(self: "DataViewer", reset=False):
         else:
             raise ValueError("Mode not recognized")
 
-        auto_level = reset or self.result_rescale_button.latched
+        if auto_level is None:
+            auto_level = reset or self.result_rescale_button.latched
 
         self.fft_widget.setImage(
             new_view.T,
@@ -882,7 +915,9 @@ def set_diffraction_autoscale_range(self: "DataViewer", percentiles, redraw=True
     self.settings.setValue("last_state/diffraction_autorange", list(percentiles))
 
     if redraw:
-        self._render_diffraction_image(reset=False)
+        # apply the newly-set range immediately (even if the rescale button
+        # is not latched)
+        self._render_diffraction_image(reset=False, auto_level=True)
 
 
 def set_real_space_autoscale_range(self: "DataViewer", percentiles, redraw=True):
@@ -890,7 +925,9 @@ def set_real_space_autoscale_range(self: "DataViewer", percentiles, redraw=True)
     self.settings.setValue("last_state/realspace_autorange", list(percentiles))
 
     if redraw:
-        self._render_virtual_image(reset=False)
+        # apply the newly-set range immediately (even if the rescale button
+        # is not latched)
+        self._render_virtual_image(reset=False, auto_level=True)
 
 
 def set_result_autoscale_range(self: "DataViewer", percentiles, redraw=True):
@@ -898,7 +935,9 @@ def set_result_autoscale_range(self: "DataViewer", percentiles, redraw=True):
     self.settings.setValue("last_state/result_autorange", list(percentiles))
 
     if redraw:
-        self._render_result_image(reset=False)
+        # apply the newly-set range immediately (even if the rescale button
+        # is not latched)
+        self._render_result_image(reset=False, auto_level=True)
 
 
 def nudge_real_space_selector(self: "DataViewer", dx, dy):
@@ -955,7 +994,10 @@ def update_tooltip(self: "DataViewer"):
 
         for scene, data in [
             (self.diffraction_space_widget, self.unscaled_diffraction_image),
-            (self.real_space_widget, self.unscaled_realspace_image),
+            # Use the *visible* virtual-image pane (default or plugin tab) and
+            # its data: a hidden tab shares the visible tab's screen rect, so
+            # reading the default widget/data here would sample the wrong image.
+            (self._visible_real_space_widget, self.current_virtual_image),
             (self.fft_widget, self.unscaled_fft_image),
         ]:
             if data is None:

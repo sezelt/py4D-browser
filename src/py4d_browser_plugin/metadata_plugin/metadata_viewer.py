@@ -34,25 +34,22 @@ class MetadataViewer(QWidget):
         pass
 
     def launch_dialog(self):
-        # dialogs need a QWidget parent; the API object exposes the window
-        # for exactly this purpose. `datacube` reads keep working since the
-        # dialog's parent is the DataViewer itself.
-        dialog = MetadataDialog(parent=self.api.qt_window)
+        dialog = MetadataDialog(self.api)
         dialog.open()
 
 
 class MetadataDialog(QDialog):
-    def __init__(self, parent):
-        super().__init__(parent=parent)
-
-        self.parent = parent
+    def __init__(self, api):
+        # Parented to the API's dialog-parent widget so it shows over the
+        # main window; the datacube is read through the API object.
+        super().__init__(parent=api.qt_window)
 
         layout = QVBoxLayout(self)
 
-        print(self.parent.datacube.metadata)
+        print(api.datacube.metadata)
 
-        mdata = self.parent.datacube.metadata | {
-            "calibration": self.parent.datacube.calibration
+        mdata = api.datacube.metadata | {
+            "calibration": api.datacube.calibration
         }
 
         tree = QTreeWidget()

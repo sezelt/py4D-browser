@@ -30,6 +30,8 @@ else interacts with the browser solely through the API object passed as
 from functools import partial
 from typing import TYPE_CHECKING
 
+from PyQt5.QtWidgets import QWidget
+
 if TYPE_CHECKING:
     from py4D_browser.main_window import DataViewer
 
@@ -52,14 +54,14 @@ class PluginAPIVersionError(Exception):
 
 class PluginAPI1:
     """
-    The version 1.0 plugin API.
+    The version 1.1 plugin API (major version 1).
 
     Instances are created by the loader (or by hand for testing) with a
     reference to the DataViewer, and passed to plugins as ``api``. All
     state lives in the viewer; this object is a thin, stable facade over it.
     """
 
-    api_version = (1, 0)
+    api_version = (1, 1)
 
     def __init__(self, viewer: "DataViewer"):
         # Hold a strong reference to the viewer; the API is a facade over it.
@@ -72,6 +74,9 @@ class PluginAPI1:
         )
         self.signal_virtual_image_data_changed = (
             viewer.signal_virtual_image_data_changed
+        )
+        self.signal_current_virtual_image_changed = (
+            viewer.signal_current_virtual_image_changed
         )
         self.signal_datacube_changed = viewer.signal_datacube_changed
 
@@ -91,11 +96,18 @@ class PluginAPI1:
         self.get_diffraction_detector = partial(viewer.get_diffraction_detector)
         self.get_virtual_image_detector = partial(viewer.get_virtual_image_detector)
 
+        # Virtual-image tabs (v1.1): let an image-producing plugin show its
+        # output in its own tab instead of overwriting the built-in virtual
+        # image. See the "Virtual-image tabs" section in PLUGINS.md.
+        self.create_virtual_image_tab = partial(viewer.create_virtual_image_tab)
+        self.close_virtual_image_tab = partial(viewer.close_virtual_image_tab)
+
         # Qt plumbing
         self.qtapp = viewer.qtapp
-        # The DataViewer itself; use it only as the parent widget for dialogs,
-        # e.g. QDialog(parent=api.qt_window).
-        self.qt_window = viewer
+        # A dialog-parent widget (see the `qt_window` property), created
+        # lazily so a plugin that never shows a dialog doesn't leave a stray
+        # child widget on the viewer.
+        self._dialog_parent = None
         self.status_bar = viewer.statusBar()
         # QSettings object; only write under a top-level section named
         # after your plugin_id.
@@ -118,12 +130,47 @@ class PluginAPI1:
             "datacube."
         )
 
+    @property
+    def virtual_image_tabs(self):
+        """
+        A copy of the list of open plugin virtual-image tabs (the default,
+        built-in tab is not included). Read-only; close a tab with
+        :meth:`close_virtual_image_tab` or ``tab.close()``.
+        """
+        return list(self._viewer.virtual_image_tabs)
+
+    @property
+    def current_virtual_image(self):
+        """
+        The raw array currently on display in the virtual-image pane: the
+        built-in virtual image when the default tab is visible, else the
+        visible plugin tab's raw array (or ``None`` if that tab has no image).
+        """
+        return self._viewer.current_virtual_image
+
+    @property
+    def qt_window(self):
+        """
+        A widget to use as the parent for dialogs, e.g.
+        ``QDialog(parent=api.qt_window)``.
+
+        This is deliberately **not** the DataViewer itself. It is a plain
+        ``QWidget`` (a child of the main window) whose only job is to serve as
+        a dialog parent, so a general plugin cannot reach the viewer's full
+        state through it — data access must go through the versioned API
+        surface above. A plugin that sets ``full_access = True`` still
+        receives the raw DataViewer directly as ``parent``.
+        """
+        if self._dialog_parent is None:
+            self._dialog_parent = QWidget(self._viewer)
+        return self._dialog_parent
+
 
 # Major version -> (highest minor version provided, API class).
 # New major versions are added here; older ones are kept so that plugins
 # written against them continue to load.
 SUPPORTED_API_VERSIONS = {
-    1: (0, PluginAPI1),
+    1: (1, PluginAPI1),
 }
 
 # The newest API version provided by this browser.

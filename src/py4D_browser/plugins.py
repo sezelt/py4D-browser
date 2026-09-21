@@ -9,6 +9,7 @@ from py4D_browser.plugin_api import (
     PluginAPIVersionError,
     resolve_api_class,
 )
+from py4D_browser.utils import strtobool
 
 from typing import TYPE_CHECKING
 
@@ -40,11 +41,21 @@ def load_plugins(self: "DataViewer"):
     A plugin that does not declare `api_version`, or that requires an API
     version this browser does not provide, is logged and skipped; loading
     the remaining plugins continues.
+
+    A plugin that sets `dev_only = True` is for development/testing use and
+    is skipped **silently** (no log output) unless the `gui/dev_plugins`
+    setting in the config file is truthy. This lets development plugins be
+    committed and tracked in-repo without exposing them to end users, who
+    must opt in by setting `gui/dev_plugins = true`.
     """
 
     import py4d_browser_plugin
 
     self.loaded_plugins = []  # we need to hold on to these objects to keep them alive
+
+    # Dev-only plugins are hidden from end users unless they opt in via the
+    # config file. Default is off.
+    dev_plugins_enabled = strtobool(self.settings.value("gui/dev_plugins", "0"))
 
     for module_info in pkgutil.iter_modules(getattr(py4d_browser_plugin, "__path__")):
 
@@ -63,6 +74,11 @@ def load_plugins(self: "DataViewer"):
             plugin_id = getattr(member, "plugin_id", None)
 
             if plugin_id:
+                # Dev-only plugins are skipped silently (no log) unless the
+                # user has opted in via the `gui/dev_plugins` setting.
+                if bool(getattr(member, "dev_only", False)) and not dev_plugins_enabled:
+                    continue
+
                 print(f"Loading plugin: {plugin_id} \tfrom: {name}")
                 try:
                     # Resolve the versioned API this plugin was written
@@ -164,6 +180,13 @@ class py4DBrowserPlugin:
     # the versioned API; no compatibility guarantees). The API object is
     # always passed as `api` regardless.
     full_access = False
+
+    # Set to True to mark this plugin as for development/testing use only.
+    # Such plugins are skipped silently (no log output) unless the user opts
+    # in by setting `gui/dev_plugins = true` in the config file. This lets
+    # development plugins be committed and tracked without exposing them to
+    # end users.
+    dev_only = False
 
     ######## optional flags ########
     display_name = "Example Plugin"
