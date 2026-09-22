@@ -872,17 +872,20 @@ class DataViewer(QMainWindow):
 
     ########## virtual-image tabs (plugin API v1.1) ##########
 
-    def create_virtual_image_tab(self, title: str) -> VirtualImageTab:
+    def create_virtual_image_tab(
+        self, title: str, select: bool = False
+    ) -> VirtualImageTab:
         """
         Create and show a new virtual-image tab the plugin can drive.
 
         The returned :class:`~py4D_browser.virtual_image_tabs.VirtualImageTab`
         is added to the virtual-image pane (behind the default, built-in tab)
         and can be driven with ``set_image``, ``set_scalebar``, and
-        ``add_roi`` / ``add_annotation``. It is not auto-selected: the built-in
-        virtual image stays visible until the user clicks the new tab. Closing
-        the tab (by the user, or via ``close``) cleanly detaches any ROIs and
-        annotations and frees the widget.
+        ``add_roi`` / ``add_annotation``. By default it is **not**
+        auto-selected: the built-in virtual image stays visible until the user
+        clicks the new tab. Pass ``select=True`` to immediately switch the
+        pane to the new tab. Closing the tab (by the user, or via ``close``)
+        cleanly detaches any ROIs and annotations and frees the widget.
 
         The new tab is seeded with the browser's default virtual-image colormap
         (the ``gui/realspace_colormap`` setting, the same default the built-in
@@ -900,6 +903,13 @@ class DataViewer(QMainWindow):
         # _refresh_tab_bar() call below.
         self.virtual_image_tab_widget.addTab(tab.widget, title)
         self.virtual_image_tabs.append(tab)
+        if select:
+            # The new tab was just appended, so it is the last index. Selecting
+            # it fires currentChanged, which notifies listeners that the
+            # currently-visible virtual image has changed.
+            self.virtual_image_tab_widget.setCurrentIndex(
+                self.virtual_image_tab_widget.count() - 1
+            )
         self._refresh_tab_bar()
         return tab
 
@@ -931,14 +941,9 @@ class DataViewer(QMainWindow):
 
         # Detach any ROIs/annotations the plugin attached so they are freed
         # (or remain reusable by the plugin) independently of the widget we
-        # are about to delete. We do not delete the items themselves.
-        for item in list(tab.rois) + list(tab.annotations):
-            scene = item.scene()
-            if scene is not None:
-                scene.removeItem(item)
-            item.setParentItem(None)
-        tab._rois = []
-        tab._annotations = []
+        # are about to delete. The tab owns this bookkeeping; the items
+        # themselves are not deleted.
+        tab.detach_items()
 
         # Remove the tab from the pane and free its widget. The tab bar's native
         # close button for this tab goes away with the tab (no separate widget to

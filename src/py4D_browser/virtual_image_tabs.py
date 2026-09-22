@@ -269,6 +269,20 @@ class VirtualImageTab(QtCore.QObject):
         self._annotations.append(annotation)
         return annotation
 
+    def detach_items(self):
+        """
+        Detach any tracked ROIs/annotations from this tab's view and stop
+        tracking them. The items themselves are **not** deleted, so a plugin
+        that wants to reuse one can do so. Safe to call more than once.
+        """
+        for item in list(self._rois) + list(self._annotations):
+            scene = item.scene()
+            if scene is not None:
+                scene.removeItem(item)
+            item.setParentItem(None)
+        self._rois = []
+        self._annotations = []
+
     ########## lifecycle ##########
 
     @property
@@ -286,7 +300,4 @@ class VirtualImageTab(QtCore.QObject):
         """
         if self._closed:
             return
-        if self._viewer is not None:
-            self._viewer.close_virtual_image_tab(self)
-        else:  # defensive: a tab with no owning viewer just marks itself closed
-            self._closed = True
+        self._viewer.close_virtual_image_tab(self)

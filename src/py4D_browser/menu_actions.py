@@ -272,6 +272,12 @@ def export_datacube(self: "DataViewer", save_format: str):
 def export_virtual_image(self: "DataViewer", im_format: str, im_type: str):
     assert im_type in ["image", "diffraction", "result"], f"bad image type: {im_type}"
 
+    # A virtual-image tab with no image set yet has nothing to export; bail
+    # out before opening the save dialog.
+    if im_type == "image" and self.current_virtual_image is None:
+        self.statusBar().showMessage("No virtual image to export.")
+        return
+
     filename = self.get_savefile_name(im_format)
 
     if im_type == "image":
@@ -309,6 +315,11 @@ def export_virtual_image(self: "DataViewer", im_format: str, im_type: str):
 
 
 def copy_vimg_to_clipboard(self: "DataViewer"):
+    # A virtual-image tab with no image set yet has nothing to copy.
+    if self.current_virtual_image is None:
+        self.statusBar().showMessage("No virtual image to copy.")
+        return
+
     img = self._visible_real_space_widget.getImageItem()
 
     if img._renderRequired:
