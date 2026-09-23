@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import QWidget
 
 class TabDemoPlugin(QWidget):
     """
-    A minimal demonstration of the v1.1 virtual-image tab API.
+    A minimal demonstration of the v1.6 virtual-image tab API.
 
     Adds a single menu item ("Copy Virtual Image to Tab") that copies the
     raw array currently on display in the virtual-image pane — the built-in
@@ -16,7 +16,7 @@ class TabDemoPlugin(QWidget):
     plugin_id = "py4DGUI.internal.tab_demo"
 
     # the plugin API version this plugin was written against
-    api_version = (1, 1)
+    api_version = (1, 6)
 
     uses_single_action = True
     display_name = "Copy Virtual Image to Tab"

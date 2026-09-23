@@ -54,14 +54,14 @@ class PluginAPIVersionError(Exception):
 
 class PluginAPI1:
     """
-    The version 1.1 plugin API (major version 1).
+    The version 1.6 plugin API (major version 1).
 
     Instances are created by the loader (or by hand for testing) with a
     reference to the DataViewer, and passed to plugins as ``api``. All
     state lives in the viewer; this object is a thin, stable facade over it.
     """
 
-    api_version = (1, 1)
+    api_version = (1, 6)
 
     def __init__(self, viewer: "DataViewer"):
         # Hold a strong reference to the viewer; the API is a facade over it.
@@ -96,7 +96,7 @@ class PluginAPI1:
         self.get_diffraction_detector = partial(viewer.get_diffraction_detector)
         self.get_virtual_image_detector = partial(viewer.get_virtual_image_detector)
 
-        # Virtual-image tabs (v1.1): let an image-producing plugin show its
+        # Virtual-image tabs (v1.6): let an image-producing plugin show its
         # output in its own tab instead of overwriting the built-in virtual
         # image. See the "Virtual-image tabs" section in PLUGINS.md.
         self.create_virtual_image_tab = partial(viewer.create_virtual_image_tab)
@@ -170,7 +170,7 @@ class PluginAPI1:
 # New major versions are added here; older ones are kept so that plugins
 # written against them continue to load.
 SUPPORTED_API_VERSIONS = {
-    1: (1, PluginAPI1),
+    1: (6, PluginAPI1),
 }
 
 # The newest API version provided by this browser.

@@ -43,7 +43,7 @@ class tcBFPlugin(QWidget):
     plugin_id = "py4DGUI.internal.tcBF"
 
     # the plugin API version this plugin was written against
-    api_version = (1, 1)
+    api_version = (1, 6)
 
     uses_plugin_menu = True
     display_name = "Tilt-Corrected BF"
