@@ -1,6 +1,7 @@
 from typing import Optional
 import pyqtgraph as pg
 import numpy as np
+from tqdm import tqdm
 import py4DSTEM
 from functools import partial
 from PyQt5.QtWidgets import QApplication, QToolTip
@@ -284,44 +285,56 @@ def update_real_space_view(self: "DataViewer", reset=False):
             )
             return
 
+        # The masked response is computed in slabs of scan positions so
+        # peak memory stays bounded (one slab at a time) and each slab is
+        # reduced with vectorized, multithreaded (BLAS) reductions instead
+        # of a Python loop over every position. The number of rows per
+        # slab (batch) is configurable in the GUI configuration file;
+        # 32 is the default.
+        try:
+            batch_size = int(self.settings.value("gui/batch_size_num_rows", 32))
+        except (TypeError, ValueError):
+            batch_size = 32
+        batch_size = max(batch_size, 1)
+
         mask = mask.astype(np.float32)
-        vimg = np.zeros((self.datacube.R_Nx, self.datacube.R_Ny))
-        iterator = py4DSTEM.tqdmnd(
-            self.datacube.R_Nx,
-            self.datacube.R_Ny,
+        n_pixels = float(np.sum(mask))
+        R_Nx, R_Ny = self.datacube.R_Nx, self.datacube.R_Ny
+        vimg = np.zeros((R_Nx, R_Ny))
+        iterator = tqdm(
+            range(0, R_Nx, batch_size),
             file=StatusBarWriter(self.statusBar()),
             mininterval=0.1,
         )
 
-        if detector["mode"] is DetectorMode.INTEGRATING:
-            for rx, ry in iterator:
-                vimg[rx, ry] = np.sum(self.datacube.data[rx, ry] * mask)
-
-        elif detector["mode"] is DetectorMode.MAXIMUM:
-            for rx, ry in iterator:
-                vimg[rx, ry] = np.max(self.datacube.data[rx, ry] * mask)
-
-        elif detector["mode"] is DetectorMode.AVERAGE:
-            n_pixels = np.sum(mask)
-            for rx, ry in iterator:
-                vimg[rx, ry] = np.sum(self.datacube.data[rx, ry] * mask) / n_pixels
-
-        elif detector["mode"] in (
+        if detector["mode"] in (
             DetectorMode.CoM,
             DetectorMode.CoMx,
             DetectorMode.CoMy,
             DetectorMode.ICOM,
         ):
+            # The center of mass is a ratio of two contractions,
+            # sum(data*mask*coord) / sum(data*mask). Precompute the
+            # coordinate-weighted masks once so each slab needs only BLAS
+            # matmuls, with no slab-sized temporaries.
             ry_coord, rx_coord = np.meshgrid(
                 np.arange(self.datacube.Q_Ny), np.arange(self.datacube.Q_Nx)
             )
+            mask_x = mask * rx_coord
+            mask_y = mask * ry_coord
+
             CoMx = np.zeros_like(vimg)
             CoMy = np.zeros_like(vimg)
-            for rx, ry in iterator:
-                ar = self.datacube.data[rx, ry] * mask
-                tot_intens = np.sum(ar)
-                CoMx[rx, ry] = np.sum(rx_coord * ar) / tot_intens
-                CoMy[rx, ry] = np.sum(ry_coord * ar) / tot_intens
+            for r0 in iterator:
+                r1 = min(r0 + batch_size, R_Nx)
+                slab = self.datacube.data[r0:r1]
+                intensity = np.tensordot(mask, slab, axes=([0, 1], [2, 3]))
+                CoMx[r0:r1] = (
+                    np.tensordot(mask_x, slab, axes=([0, 1], [2, 3])) / intensity
+                )
+                CoMy[r0:r1] = (
+                    np.tensordot(mask_y, slab, axes=([0, 1], [2, 3])) / intensity
+                )
 
             CoMx -= np.mean(CoMx)
             CoMy -= np.mean(CoMy)
@@ -345,7 +358,19 @@ def update_real_space_view(self: "DataViewer", reset=False):
                 raise ValueError("Mode logic gone haywire!")
 
         else:
-            raise ValueError("Oopsie")
+            for r0 in iterator:
+                r1 = min(r0 + batch_size, R_Nx)
+                slab = self.datacube.data[r0:r1]
+                if detector["mode"] is DetectorMode.INTEGRATING:
+                    vimg[r0:r1] = np.tensordot(mask, slab, axes=([0, 1], [2, 3]))
+                elif detector["mode"] is DetectorMode.AVERAGE:
+                    vimg[r0:r1] = (
+                        np.tensordot(mask, slab, axes=([0, 1], [2, 3])) / n_pixels
+                    )
+                elif detector["mode"] is DetectorMode.MAXIMUM:
+                    vimg[r0:r1] = np.max(np.where(mask, slab, -np.inf), axis=(2, 3))
+                else:
+                    raise ValueError("Oopsie")
 
     self.set_virtual_image(
         vimg,
