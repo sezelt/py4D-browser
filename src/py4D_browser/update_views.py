@@ -244,6 +244,8 @@ def update_real_space_view(self: "DataViewer", reset=False):
                 vimg = np.sum(self.datacube.data[:, :, slice_x, slice_y], axis=(2, 3))
             elif detector["mode"] is DetectorMode.MAXIMUM:
                 vimg = np.max(self.datacube.data[:, :, slice_x, slice_y], axis=(2, 3))
+            elif detector["mode"] is DetectorMode.AVERAGE:
+                vimg = np.mean(self.datacube.data[:, :, slice_x, slice_y], axis=(2, 3))
 
         case DetectorShape.CIRCLE:
             # This has no direct methods, so vimg will be made with mask
@@ -298,6 +300,11 @@ def update_real_space_view(self: "DataViewer", reset=False):
         elif detector["mode"] is DetectorMode.MAXIMUM:
             for rx, ry in iterator:
                 vimg[rx, ry] = np.max(self.datacube.data[rx, ry] * mask)
+
+        elif detector["mode"] is DetectorMode.AVERAGE:
+            n_pixels = np.sum(mask)
+            for rx, ry in iterator:
+                vimg[rx, ry] = np.sum(self.datacube.data[rx, ry] * mask) / n_pixels
 
         elif detector["mode"] in (
             DetectorMode.CoM,
@@ -452,6 +459,8 @@ def update_diffraction_space_view(self: "DataViewer", reset=False):
                     DP = np.sum(self.datacube.data[slice_x, slice_y], axis=(0, 1))
                 case DetectorMode.MAXIMUM:
                     DP = np.max(self.datacube.data[slice_x, slice_y], axis=(0, 1))
+                case DetectorMode.AVERAGE:
+                    DP = np.mean(self.datacube.data[slice_x, slice_y], axis=(0, 1))
                 case _:
                     raise ValueError("Unsupported detector response")
 

@@ -505,6 +505,14 @@ class DataViewer(QMainWindow):
         detector_mode_group.addAction(detector_maximum_action)
         self.detector_menu.addAction(detector_maximum_action)
 
+        detector_average_action = QAction("A&verage", self)
+        detector_average_action.setCheckable(True)
+        detector_average_action.triggered.connect(
+            partial(self.update_real_space_view, True)
+        )
+        detector_mode_group.addAction(detector_average_action)
+        self.detector_menu.addAction(detector_average_action)
+
         detector_CoM = QAction("C&oM", self)
         detector_CoM.setCheckable(True)
         detector_CoM.triggered.connect(partial(self.update_real_space_view, True))
@@ -555,6 +563,14 @@ class DataViewer(QMainWindow):
         )
         realspace_detector_mode_group.addAction(detector_maximum_action)
         self.detector_menu.addAction(detector_maximum_action)
+
+        detector_average_action = QAction("A&verage", self)
+        detector_average_action.setCheckable(True)
+        detector_average_action.triggered.connect(
+            partial(self.update_diffraction_space_view, True)
+        )
+        realspace_detector_mode_group.addAction(detector_average_action)
+        self.detector_menu.addAction(detector_average_action)
 
         # Detector Shape Menu
         self.detector_shape_menu = QMenu("Detector &Shape", self)

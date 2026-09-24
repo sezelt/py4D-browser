@@ -53,6 +53,7 @@ class DetectorShape(Enum):
 class DetectorMode(Enum):
     INTEGRATING = "integrating"
     MAXIMUM = "maximum"
+    AVERAGE = "average"
     CoM = "com"
     CoMx = "comx"
     CoMy = "comy"
