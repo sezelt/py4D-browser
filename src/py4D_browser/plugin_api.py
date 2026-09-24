@@ -92,6 +92,21 @@ class PluginAPI1:
         # post-load machinery: view resets + signal_datacube_changed.
         self.set_datacube = partial(viewer.set_datacube)
 
+        # Result-pane registration (see register_result_callback in
+        # signals.py): lets a plugin drive the result pane instead of the
+        # built-in FFT/EWPC. The registration is a singleton — registering a
+        # new callback replaces the previous one (and runs its cleanup).
+        self.register_result_callback = partial(viewer.register_result_callback)
+
+        # Attach/detach pyqtgraph items (ROIs, lines, …) to the built-in
+        # diffraction and real-space views. These are the supported way for a
+        # plugin to place an ROI in a built-in view; do not reach into the
+        # viewer's widgets directly.
+        self.add_diffraction_roi = partial(viewer.add_diffraction_roi)
+        self.remove_diffraction_roi = partial(viewer.remove_diffraction_roi)
+        self.add_real_space_roi = partial(viewer.add_real_space_roi)
+        self.remove_real_space_roi = partial(viewer.remove_real_space_roi)
+
         # Detector getters (see "Accessing the detectors" in PLUGINS.md)
         self.get_diffraction_detector = partial(viewer.get_diffraction_detector)
         self.get_virtual_image_detector = partial(viewer.get_virtual_image_detector)
@@ -147,6 +162,29 @@ class PluginAPI1:
         visible plugin tab's raw array (or ``None`` if that tab has no image).
         """
         return self._viewer.current_virtual_image
+
+    @property
+    def diffraction_image_shape(self):
+        """
+        The shape of the raw (unscaled) diffraction image currently on display,
+        or ``None`` if no image is loaded. Read-only; shapes are exposed
+        (rather than the full arrays) so a plugin can size ROIs against the
+        view without retaining a reference to a large array.
+        """
+        image = self._viewer.unscaled_diffraction_image
+        return None if image is None else image.shape
+
+    @property
+    def real_space_image_shape(self):
+        """
+        The shape of the raw (unscaled) real-space (virtual image) image
+        currently on display in the built-in pane, or ``None`` if no image is
+        loaded. Read-only; shapes are exposed (rather than the full array) so a
+        plugin can size ROIs against the view without retaining a reference to
+        a large array.
+        """
+        image = self._viewer.unscaled_realspace_image
+        return None if image is None else image.shape
 
     @property
     def qt_window(self):

@@ -660,6 +660,53 @@ def set_scalebar(self: "DataViewer", view, pixel_size=None, units=None):
         scale_bar.updateBar()
 
 
+def add_diffraction_roi(self: "DataViewer", item):
+    """
+    Attach a pre-built pyqtgraph item (an ROI such as ``pg.ROI``/``pg.LineROI``/
+    ``pg.PolygonROI``, or a line/text/path) to the diffraction view.
+
+    The plugin owns the item's lifetime; this only adds it to the view. The
+    item is returned so a plugin can chain or re-store it. Detach with
+    :func:`remove_diffraction_roi`.
+    """
+    self.diffraction_space_widget.getView().addItem(item)
+    return item
+
+
+def remove_diffraction_roi(self: "DataViewer", item):
+    """
+    Detach a previously-attached pyqtgraph item from the diffraction view (the
+    inverse of :func:`add_diffraction_roi`). The item is *not* deleted, so a
+    plugin may re-add it later.
+    """
+    self.diffraction_space_widget.getView().removeItem(item)
+    return item
+
+
+def add_real_space_roi(self: "DataViewer", item):
+    """
+    Attach a pre-built pyqtgraph item (an ROI such as ``pg.ROI``/``pg.LineROI``/
+    ``pg.PolygonROI``, or a line/text/path) to the built-in real-space (virtual
+    image) view — the default tab of the virtual-image pane.
+
+    The plugin owns the item's lifetime; this only adds it to the view. The
+    item is returned so a plugin can chain or re-store it. Detach with
+    :func:`remove_real_space_roi`.
+    """
+    self.real_space_widget.getView().addItem(item)
+    return item
+
+
+def remove_real_space_roi(self: "DataViewer", item):
+    """
+    Detach a previously-attached pyqtgraph item from the built-in real-space
+    (virtual image) view (the inverse of :func:`add_real_space_roi`). The item
+    is *not* deleted, so a plugin may re-add it later.
+    """
+    self.real_space_widget.getView().removeItem(item)
+    return item
+
+
 def _render_result_image(
     self: "DataViewer", reset=False, auto_level: Optional[bool] = None
 ):
