@@ -164,6 +164,14 @@ class PluginAPI1:
         return self._viewer.current_virtual_image
 
     @property
+    def current_diffraction_image(self):
+        """
+        The raw array currently on display in the diffraction pane
+        (``None`` if no image is loaded).
+        """
+        return self._viewer.unscaled_diffraction_image
+
+    @property
     def diffraction_image_shape(self):
         """
         The shape of the raw (unscaled) diffraction image currently on display,

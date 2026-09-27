@@ -10,7 +10,7 @@ We hope to maintain a list of existing plugins here. If you produce a browser pl
 Parts of what used to be "core" functionality are now implemented using the plugin interface to separate them from the core browser code. These are packaged with py4DGUI and always available:
 * `Calibration`: Allows for the calibration of the scale bars using known physical distances. Uses the versioned plugin API (v1.0) and updates the scale bars through `set_scalebar`.
 * `tcBF`: Allows for the computation of tilt-corrected brightfield images. Uses the versioned plugin API (v1.6) and the detector getters, and displays its reconstruction in its own virtual-image tab (see below) so it does not overwrite the built-in virtual image.
-* `Copy Virtual Image to Tab`: A minimal demonstration of the v1.6 virtual-image tab API — adds a single menu item that copies the raw array currently on display in the virtual-image pane (the built-in image, or another plugin tab's image) into a new tab.
+* `Copy Image to Tab`: Copies the raw array currently on display — the virtual image (the built-in image, or another plugin tab's image) or the diffraction pattern — into a new virtual-image tab, so it can be kept alongside the live display without being overwritten.
 
 ### External plugins
 * [EMPAD2 Raw File Reader](https://github.com/sezelt/empad2): This also previously was present in the core browser code and would add an additional menu if the external package was installed. This adds the ability to import the "concatenated" raw binary data from the TFS EMPAD-G2 detector. This plugin is considered conforming to the guidelines.  
@@ -114,7 +114,7 @@ The v1.6 API object is a broker between the plugin and the browser. Plugins shou
 * **View ROIs (new in v1.6)** — `add_diffraction_roi(item)`, `remove_diffraction_roi(item)`, `add_real_space_roi(item)`, `remove_real_space_roi(item)` attach and detach a pre-built pyqtgraph item (an ROI such as `pg.ROI`/`pg.LineROI`/`pg.PolygonROI`, or a line/text/path) to the built-in diffraction view or the built-in real-space (virtual image) view. Each returns the item. The plugin owns the item's lifetime: `remove_*` detaches it without deleting it, so it can be re-added. This is the supported way to place an ROI in a built-in view — do not reach into the viewer's `*_widget.getView()` objects directly (and do not retain references to those widgets).
 * **Image-shape accessors (new in v1.6)** — `diffraction_image_shape` and `real_space_image_shape` return the shape of the raw (unscaled) image currently on display in the built-in diffraction / real-space views, or `None` if no image is loaded. These expose the *shape* (not the full array) so a plugin can size ROIs against the displayed view without retaining a reference to a large array.
 * **Detector getters** — `get_diffraction_detector()` and `get_virtual_image_detector()`, each returning a `DetectorInfo` (see below).
-* **Virtual-image tabs (new in v1.6)** — `create_virtual_image_tab(title)`, `close_virtual_image_tab(tab)`, `virtual_image_tabs`, `current_virtual_image`. See [Virtual-image tabs](#virtual-image-tabs-v16) below.
+* **Virtual-image tabs (new in v1.6)** — `create_virtual_image_tab(title)`, `close_virtual_image_tab(tab)`, `virtual_image_tabs`, `current_virtual_image`, `current_diffraction_image`. See [Virtual-image tabs](#virtual-image-tabs-v16) below.
 * **Qt plumbing** — `qtapp` (the `QApplication`), `qt_window` (a `QWidget` to use as a dialog parent — **not** the main window itself), `status_bar` (the status bar), and `settings` (the QSettings).
 
 ### Virtual-image tabs (v1.6)
@@ -124,6 +124,7 @@ The virtual-image pane is now a tabbed pane. Tab index 0 is the **default tab** 
 * **`create_virtual_image_tab(title, select=False)`** — add a new tab labeled `title` and return a `VirtualImageTab` object for the plugin to drive. By default the new tab is **not** selected (the built-in virtual image stays visible until the user clicks it); pass `select=True` to immediately switch the pane to the new tab. Reuse a tab by keeping a reference to the returned object (or finding it in `virtual_image_tabs` by `title`) and calling `set_image` on it again, rather than creating a new tab each time.
 * **`virtual_image_tabs`** — a copy of the list of open plugin tabs (the default tab is not in it). Read-only; close a tab with `close_virtual_image_tab(tab)` or `tab.close()`.
 * **`current_virtual_image`** — the raw array currently on display in the virtual-image pane: the built-in virtual image when the default tab is visible, else the visible plugin tab's raw array (or `None`).
+* **`current_diffraction_image`** — the raw array currently on display in the diffraction pane (or `None` if no image is loaded).
 * **`close_virtual_image_tab(tab)`** / **`tab.close()`** — close a plugin tab. This detaches the tab's ROIs and annotations from its view, removes the tab from the pane, and frees its widget. It is idempotent, so it is safe to call more than once. Note that ROIs/annotations are *detached*, not destroyed — a plugin that wants to reuse an item can do so.
 
 A `VirtualImageTab` object (returned by `create_virtual_image_tab`) exposes:
