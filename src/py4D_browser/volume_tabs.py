@@ -79,8 +79,9 @@ class VolumeTab(QtCore.QObject):
         self._closed = False
         self._volume: Optional[np.ndarray] = None
         self._levels: Optional[tuple] = None
+        self._voxel_size = (1.0, 1.0, 1.0)
         self._volume_item: Optional["gl.GLVolumeItem"] = None
-        self._grid_sized_for: Optional[tuple] = None
+        self._aids_sized_for: Optional[tuple] = None
 
         # Split the tab: the 3D OpenGL view on the left, the transfer-function
         # editors in a narrow panel on the right.
@@ -169,6 +170,16 @@ class VolumeTab(QtCore.QObject):
         return self._levels
 
     @property
+    def voxel_size(self):
+        """
+        The current ``(dx, dy, dz)`` physical voxel size (a 3-tuple of
+        floats), last set via :meth:`set_volume`. Defaults to
+        ``(1.0, 1.0, 1.0)``: unit, isotropic voxels. The volume and the
+        orientation aids (grid, axes) are rendered in these physical units.
+        """
+        return self._voxel_size
+
+    @property
     def view(self):
         """
         The ``pyqtgraph.opengl.GLViewWidget`` showing the volume.
@@ -210,7 +221,7 @@ class VolumeTab(QtCore.QObject):
 
     ########## display ##########
 
-    def set_volume(self, volume, reset: bool = True):
+    def set_volume(self, volume, reset: bool = True, voxel_size=None):
         """
         Set the scalar volume rendered in this tab.
 
@@ -223,6 +234,15 @@ class VolumeTab(QtCore.QObject):
             the user's configured real-space autoscale percentiles (the same
             range the built-in virtual image uses). If False, keep the tab's
             current levels (deriving min/max on the very first call).
+        voxel_size : float or (float, float, float), optional
+            The physical size of a single voxel: a scalar for isotropic
+            voxels, or a ``(dx, dy, dz)`` 3-tuple for anisotropic ones. All
+            values must be finite and positive. The volume, the orientation
+            grid, and the axes are then rendered in these physical units
+            (an anisotropic size stretches the volume accordingly), and the
+            initial camera distance is scaled to the volume's physical
+            extent. If omitted, the tab's current voxel size is kept
+            (default ``(1.0, 1.0, 1.0)`` — unit cubes).
         """
         if self._closed:
             raise RuntimeError("Cannot set the volume of a closed volume tab.")
@@ -235,6 +255,9 @@ class VolumeTab(QtCore.QObject):
             )
         if np.iscomplexobj(volume):
             raise ValueError("A volume tab cannot render a complex volume.")
+
+        if voxel_size is not None:
+            self._voxel_size = self._parse_voxel_size(voxel_size)
 
         self._volume = volume
         if reset:
@@ -258,6 +281,37 @@ class VolumeTab(QtCore.QObject):
         # changed. This mirrors ``VirtualImageTab.set_image``.
         if self._viewer is not None and self._viewer.is_virtual_image_tab_visible(self):
             self._viewer.signal_current_virtual_image_changed.emit()
+
+    @staticmethod
+    def _parse_voxel_size(voxel_size):
+        """
+        Normalize a ``voxel_size`` argument (a positive scalar, or a length-3
+        sequence of positive numbers) into a ``(dx, dy, dz)`` float tuple,
+        raising ``ValueError`` on anything else.
+        """
+        try:
+            arr = np.asarray(voxel_size, dtype=np.float64).ravel()
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "voxel_size must be a positive number (isotropic) or a "
+                "3-tuple of positive numbers (dx, dy, dz); "
+                f"got {voxel_size!r}."
+            ) from exc
+        if arr.size == 1:
+            values = (float(arr[0]),) * 3
+        elif arr.size == 3:
+            values = tuple(float(v) for v in arr)
+        else:
+            raise ValueError(
+                "voxel_size must be a positive number (isotropic) or a "
+                f"3-tuple of positive numbers (dx, dy, dz); got {voxel_size!r}."
+            )
+        if any(not np.isfinite(v) or v <= 0 for v in values):
+            raise ValueError(
+                "voxel_size values must be finite and positive; "
+                f"got {values!r}."
+            )
+        return values
 
     def set_levels(self, low: float, high: float):
         """
@@ -337,27 +391,50 @@ class VolumeTab(QtCore.QObject):
         rgba[..., 2] = color_lut[idx, 2]
         rgba[..., 3] = alpha_lut[idx]
 
+        shape = self._volume.shape
         if self._volume_item is None:
             # First render: build the GL item (this never uploads the 3D
             # texture; the upload happens at paint time).
-            shape = self._volume.shape
             self._volume_item = gl.GLVolumeItem(rgba)
-            # Center the volume on the origin so the built-in orbit control
-            # pivots around it (the item otherwise spans (0,0,0)..shape).
-            self._volume_item.translate(-shape[0] / 2, -shape[1] / 2, -shape[2] / 2)
             self._view.addItem(self._volume_item)
-            self._view.setCameraPosition(distance=max(shape) * 1.5)
-            # Size the orientation grid to the volume's footprint.
-            self._size_grid(shape)
+            # Frame the volume's physical extent.
+            extents = self._physical_extents(shape)
+            self._view.setCameraPosition(distance=max(extents) * 1.5)
         else:
             self._volume_item.setData(rgba)
-            # The volume shape may have changed; keep the grid in step.
-            self._size_grid(self._volume.shape)
+        # Place the item: the data spans voxel indices (0,0,0)..shape, so
+        # scale by the voxel sizes and center the physical box on the
+        # origin (so the built-in orbit control pivots around it). Applied
+        # every recompute, since a new volume may have a different shape
+        # or voxel size. (Order: scale in local coords, then translate in
+        # parent coords -> transform T*S.)
+        self._volume_item.resetTransform()
+        self._volume_item.scale(*self._voxel_size)
+        self._volume_item.translate(
+            -shape[0] * self._voxel_size[0] / 2,
+            -shape[1] * self._voxel_size[1] / 2,
+            -shape[2] * self._voxel_size[2] / 2,
+            local=False,
+        )
+        # Keep the orientation aids in step with the volume's footprint.
+        self._size_aids(shape)
 
-    def _size_grid(self, shape):
-        if self._grid_sized_for != shape:
-            self._grid.setSize(shape[0], shape[1])
-            self._grid_sized_for = shape
+    def _physical_extents(self, shape):
+        """The volume's ``(dx, dy, dz)`` size in physical units."""
+        return tuple(s * v for s, v in zip(shape, self._voxel_size))
+
+    def _size_aids(self, shape):
+        """Size the orientation grid and axes to the volume's footprint."""
+        key = (shape, self._voxel_size)
+        if self._aids_sized_for == key:
+            return
+        extents = self._physical_extents(shape)
+        self._grid.setSize(*extents)
+        # The axes are a fixed orientation aid at the origin; match their
+        # length to the volume's longest extent so they stay visible.
+        length = max(extents)
+        self._axis.setSize(length, length, length)
+        self._aids_sized_for = key
 
     ########## lifecycle ##########
 

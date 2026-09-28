@@ -174,9 +174,10 @@ Requires PyOpenGL (a dependency of the browser; if it is somehow absent, `create
 
 A `VolumeTab` object (returned by `create_volume_tab`) exposes:
 
-* **`set_volume(volume, reset=True)`** — set the scalar volume rendered in the tab. `volume` must be a **real 3D** array (x, y, z): non-3D arrays raise `ValueError`, as do complex arrays. With `reset` (the default) the tab's display level range is re-derived from the data using the same autoscale percentile range as the built-in virtual image; pass `reset=False` to keep the tab's current levels (on the very first call, min/max are used).
+* **`set_volume(volume, reset=True, voxel_size=None)`** — set the scalar volume rendered in the tab. `volume` must be a **real 3D** array (x, y, z): non-3D arrays raise `ValueError`, as do complex arrays. With `reset` (the default) the tab's display level range is re-derived from the data using the same autoscale percentile range as the built-in virtual image; pass `reset=False` to keep the tab's current levels (on the very first call, min/max are used). `voxel_size` is the physical size of one voxel: a scalar (isotropic) or a `(dx, dy, dz)` 3-tuple (anisotropic). All values must be finite and positive (anything else raises `ValueError`). When given, the volume, the orientation grid, and the axes are rendered in these physical units, and the initial camera distance scales to the volume's physical extent; when omitted, the tab's current voxel size is kept.
 * **`set_levels(low, high)`** — set the display level range explicitly and re-render.
 * **`levels`** — the current `(low, high)` display range (or `None` before any `set_volume`).
+* **`voxel_size`** — the current `(dx, dy, dz)` physical voxel size (a 3-tuple of floats), last set via `set_volume`; defaults to `(1.0, 1.0, 1.0)` (unit, isotropic voxels). Read-only.
 * **`volume`** / **`image`** — the last array passed to `set_volume` (or `None`). `image` is an alias so the tab is interchangeable with a `VirtualImageTab` where a tab's array is read; for a volume tab it is the 3D volume.
 * **`color_editor`** / **`alpha_editor`** — the two `pyqtgraph` `GradientEditorItem` transfer functions, shown in the tab's side panel and adjustable by the user at any time (edits re-render live). In the **color** editor only each tick's *color* matters (its alpha is ignored); in the **alpha** editor only each tick's *alpha* matters. A programmatic edit must pass `QtGui.QColor` objects as tick colors (pyqtgraph stores them as-is and later calls `QColor` methods on them). A fresh tab is seeded with the browser's default virtual-image colormap (the `gui/realspace_colormap` setting) and a transparent→opaque alpha ramp.
 * **`view`** — the `pyqtgraph.opengl.GLViewWidget` showing the volume. Built-in mouse controls: drag = orbit, Ctrl+drag = pan (view relative), middle-drag = pan (view upright), wheel = zoom, arrow keys = orbit. The camera can also be driven programmatically with `setCameraPosition` / `setCameraParams` / `cameraParams`.
@@ -194,7 +195,7 @@ A `VolumeTab` object (returned by `create_volume_tab`) exposes:
 
 ```python
 tab = self.api.create_volume_tab("Recon", select=True)   # create once, reuse
-tab.set_volume(reconstruction, reset=True)
+tab.set_volume(reconstruction, reset=True, voxel_size=(0.5, 0.5, 2.0))  # physical voxel size
 # ... later, adjust the appearance programmatically:
 tab.set_levels(0.0, 1.0)
 tab.view.setCameraPosition(elevation=30, azimuth=45)

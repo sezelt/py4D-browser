@@ -118,6 +118,99 @@ def test_set_volume_derives_levels_in_range(viewer):
         api.close_virtual_image_tab(tab)
 
 
+########## voxel size ##########
+
+
+def test_voxel_size_defaults_to_unit_cubes(viewer):
+    api = PluginAPI(viewer)
+    tab = api.create_volume_tab("Vol")
+    try:
+        # before any volume: unit, isotropic voxels
+        assert tab.voxel_size == (1.0, 1.0, 1.0)
+
+        vol = np.random.default_rng(0).random((8, 6, 4), dtype=np.float32)
+        tab.set_volume(vol)
+        assert tab.voxel_size == (1.0, 1.0, 1.0)
+
+        # with unit voxels the aids match the volume's shape
+        assert tab.grid.size() == [8, 6, 4]
+        assert tab.axis.size() == [8, 8, 8]
+    finally:
+        api.close_virtual_image_tab(tab)
+
+
+def test_voxel_size_scalar_isotropic(viewer):
+    api = PluginAPI(viewer)
+    tab = api.create_volume_tab("Vol")
+    try:
+        vol = np.random.default_rng(0).random((8, 6, 4), dtype=np.float32)
+        tab.set_volume(vol, voxel_size=0.5)
+        assert tab.voxel_size == (0.5, 0.5, 0.5)
+        assert tab.grid.size() == [4.0, 3.0, 2.0]
+        # the axes match the longest physical extent
+        assert tab.axis.size() == [4.0, 4.0, 4.0]
+    finally:
+        api.close_virtual_image_tab(tab)
+
+
+def test_voxel_size_anisotropic(viewer):
+    api = PluginAPI(viewer)
+    tab = api.create_volume_tab("Vol")
+    try:
+        vol = np.random.default_rng(0).random((8, 6, 4), dtype=np.float32)
+        tab.set_volume(vol, voxel_size=(1.0, 2.0, 0.25))
+        assert tab.voxel_size == (1.0, 2.0, 0.25)
+        assert tab.grid.size() == [8.0, 12.0, 1.0]
+        assert tab.axis.size() == [12.0, 12.0, 12.0]
+    finally:
+        api.close_virtual_image_tab(tab)
+
+
+def test_voxel_size_kept_when_omitted(viewer):
+    api = PluginAPI(viewer)
+    tab = api.create_volume_tab("Vol")
+    try:
+        tab.set_volume(
+            np.random.default_rng(0).random((8, 8, 8), dtype=np.float32),
+            voxel_size=2.0,
+        )
+        # re-setting a volume without a voxel size keeps the previous one
+        tab.set_volume(np.random.default_rng(1).random((4, 6, 8), dtype=np.float32))
+        assert tab.voxel_size == (2.0, 2.0, 2.0)
+        assert tab.grid.size() == [8.0, 12.0, 16.0]
+    finally:
+        api.close_virtual_image_tab(tab)
+
+
+def test_voxel_size_rejects_bad_values(viewer):
+    api = PluginAPI(viewer)
+    tab = api.create_volume_tab("Vol")
+    vol = np.random.default_rng(0).random((4, 4, 4), dtype=np.float32)
+    try:
+        for bad in (
+            0,
+            -1,
+            (1.0, 2.0),
+            (1.0, 2.0, 3.0, 4.0),
+            "foo",
+            (np.inf, 1.0, 1.0),
+            [float("nan")],
+        ):
+            with pytest.raises(ValueError):
+                tab.set_volume(vol, voxel_size=bad)
+
+        # a rejected value leaves the tab unchanged (no volume was set)
+        assert tab.volume is None
+        assert tab.voxel_size == (1.0, 1.0, 1.0)
+
+        # ...and a good value still works afterward
+        tab.set_volume(vol, voxel_size=1.5)
+        assert tab.voxel_size == (1.5, 1.5, 1.5)
+        assert tab.grid.size() == [6.0, 6.0, 6.0]
+    finally:
+        api.close_virtual_image_tab(tab)
+
+
 ########## transfer-function editors ##########
 
 
