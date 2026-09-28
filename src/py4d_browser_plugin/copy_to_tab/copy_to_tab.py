@@ -45,6 +45,15 @@ class CopyToTabPlugin(QWidget):
                 "No virtual image to copy — display one first.", 5_000
             )
             return
+        if image.ndim != 2:
+            # A 3D volume tab is on display; its array can't go into a 2D
+            # virtual-image tab.
+            api.status_bar.showMessage(
+                "The visible virtual image is a 3D volume; it can't be "
+                "copied to an image tab.",
+                5_000,
+            )
+            return
         title = self._next_title("VI Copy")
         tab = api.create_virtual_image_tab(title)
         set_scalebar = {}

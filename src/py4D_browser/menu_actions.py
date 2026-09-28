@@ -278,6 +278,19 @@ def export_virtual_image(self: "DataViewer", im_format: str, im_type: str):
         self.statusBar().showMessage("No virtual image to export.")
         return
 
+    # A display export of what's shown on a volume tab is impossible (there's
+    # no 2D rendered image); bail before opening the save dialog and point
+    # at "TIFF (raw)", which writes the raw 3D array.
+    if (
+        im_type == "image"
+        and im_format in ("PNG (display)", "TIFF (display)")
+        and getattr(self._visible_real_space_widget, "image", None) is None
+    ):
+        self.statusBar().showMessage(
+            "A 3D volume tab is visible; use TIFF (raw) to export the volume."
+        )
+        return
+
     filename = self.get_savefile_name(im_format)
 
     if im_type == "image":
@@ -294,17 +307,17 @@ def export_virtual_image(self: "DataViewer", im_format: str, im_type: str):
     else:
         raise RuntimeError("Unrecognized export image source...")
 
-    vimg = view.image.T
-    vmin, vmax = view.getLevels()
-
-    if im_format == "PNG (display)":
-        plt.imsave(
-            fname=filename, arr=vimg, vmin=vmin, vmax=vmax, format="png", cmap="gray"
-        )
-    elif im_format == "TIFF (display)":
-        plt.imsave(
-            fname=filename, arr=vimg, vmin=vmin, vmax=vmax, format="tiff", cmap="gray"
-        )
+    if im_format in ("PNG (display)", "TIFF (display)"):
+        vimg = view.image.T
+        vmin, vmax = view.getLevels()
+        if im_format == "PNG (display)":
+            plt.imsave(
+                fname=filename, arr=vimg, vmin=vmin, vmax=vmax, format="png", cmap="gray"
+            )
+        else:
+            plt.imsave(
+                fname=filename, arr=vimg, vmin=vmin, vmax=vmax, format="tiff", cmap="gray"
+            )
     elif im_format == "TIFF (raw)":
         from tifffile import TiffWriter
 
@@ -320,7 +333,16 @@ def copy_vimg_to_clipboard(self: "DataViewer"):
         self.statusBar().showMessage("No virtual image to copy.")
         return
 
-    img = self._visible_real_space_widget.getImageItem()
+    view = self._visible_real_space_widget
+
+    # A 3D volume tab has no 2D rendered image to copy.
+    if getattr(view, "getImageItem", None) is None:
+        self.statusBar().showMessage(
+            "A 3D volume tab is visible; it cannot be copied to the clipboard."
+        )
+        return
+
+    img = view.getImageItem()
 
     if img._renderRequired:
         img.render()
