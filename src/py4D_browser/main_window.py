@@ -26,6 +26,7 @@ from functools import partial
 from pathlib import Path
 import os
 import gc
+import sys
 import platformdirs
 from showinfm import show_in_file_manager
 
@@ -33,6 +34,7 @@ from py4D_browser.utils import VLine, LatchingButton, strtobool, try_get_cmap
 from py4D_browser.version import __version__
 from py4D_browser.scalebar import ScaleBar
 from py4D_browser.virtual_image_tabs import VirtualImageTab
+from py4D_browser.volume_tabs import VolumeTab
 
 
 class DataViewer(QMainWindow):
@@ -118,9 +120,21 @@ class DataViewer(QMainWindow):
         # Define this as the QApplication object
         self.qtapp = QApplication.instance()
         if not self.qtapp:
-            import sys
-
             self.qtapp = QApplication(sys.argv)
+
+        if sys.platform.startswith("darwin"):
+            # macOS's default (legacy) GL context lacks GL_TEXTURE_3D / GLSL
+            # 1.4, which pyqtgraph's 3D volume rendering needs. Request a
+            # modern Core profile as the process default — this must be set
+            # before any QOpenGLWidget (e.g. a volume tab's GLViewWidget)
+            # exists. pyqtgraph's own GLVolumeItem example does the same.
+            fmt = QtGui.QSurfaceFormat()
+            fmt.setRenderableType(QtGui.QSurfaceFormat.RenderableType.OpenGL)
+            fmt.setProfile(
+                QtGui.QSurfaceFormat.OpenGLContextProfile.CoreProfile
+            )
+            fmt.setVersion(4, 1)
+            QtGui.QSurfaceFormat.setDefaultFormat(fmt)
 
         # Load settings from config file
         self.config_path = os.path.join(
@@ -155,8 +169,9 @@ class DataViewer(QMainWindow):
         self.unscaled_realspace_image: Optional[np.ndarray] = None
         self.unscaled_fft_image: Optional[np.ndarray] = None
 
-        # Plugin-created virtual-image tabs (see virtual_image_tabs.py). The
-        # built-in virtual image lives in the default tab (index 0 of
+        # Plugin-created virtual-image tabs (image or volume; see
+        # virtual_image_tabs.py / volume_tabs.py). The built-in virtual
+        # image lives in the default tab (index 0 of
         # ``virtual_image_tab_widget``) and is NOT listed here; this list only
         # ever holds the plugin tabs, in the same order as the tab bar (offset
         # by one, since the default tab occupies index 0).
@@ -890,7 +905,7 @@ class DataViewer(QMainWindow):
         )
         self.statusBar().addPermanentWidget(self.result_rescale_button)
 
-    ########## virtual-image tabs (plugin API v1.6) ##########
+    ########## virtual-image tabs (plugin API v1.6; 3D volume tabs v1.7) ##########
 
     def create_virtual_image_tab(
         self, title: str, select: bool = False
@@ -933,6 +948,45 @@ class DataViewer(QMainWindow):
         self._refresh_tab_bar()
         return tab
 
+    def create_volume_tab(self, title: str, select: bool = False) -> VolumeTab:
+        """
+        Create and show a new 3D volume tab the plugin can drive.
+
+        The returned :class:`~py4D_browser.volume_tabs.VolumeTab` is added to
+        the virtual-image pane (behind the default, built-in tab) and renders
+        a 3D volume via pyqtgraph's OpenGL volume rendering: the user can
+        orbit/pan/zoom with the mouse and adjust the tab's color and alpha
+        transfer functions live. Drive it with ``set_volume`` /
+        ``set_levels``. By default it is **not** auto-selected: the built-in
+        virtual image stays visible until the user clicks the new tab. Pass
+        ``select=True`` to immediately switch the pane to the new tab.
+        Closing the tab (by the user, or via ``close``) frees its widget and
+        GL resources.
+
+        The tab's color transfer function is seeded with the browser's
+        default virtual-image colormap (the ``gui/realspace_colormap``
+        setting), matching the built-in pane's default look.
+
+        Requires PyOpenGL (a default dependency); constructing the tab raises
+        ``RuntimeError`` if it is not installed.
+        """
+        tab = VolumeTab(title, self)
+
+        # With setTabsClosable(True) active, this new tab automatically gets the
+        # tab bar's native close button; the default tab's is suppressed by the
+        # _refresh_tab_bar() call below.
+        self.virtual_image_tab_widget.addTab(tab.widget, title)
+        self.virtual_image_tabs.append(tab)
+        if select:
+            # The new tab was just appended, so it is the last index. Selecting
+            # it fires currentChanged, which notifies listeners that the
+            # currently-visible virtual image has changed.
+            self.virtual_image_tab_widget.setCurrentIndex(
+                self.virtual_image_tab_widget.count() - 1
+            )
+        self._refresh_tab_bar()
+        return tab
+
     def _seed_tab_colormap(self, tab: VirtualImageTab):
         """
         Seed a new tab's colormap with the browser's default virtual-image
@@ -951,10 +1005,11 @@ class DataViewer(QMainWindow):
         if cmap is not None:
             tab.colormap = cmap
 
-    def close_virtual_image_tab(self, tab: VirtualImageTab):
+    def close_virtual_image_tab(self, tab):
         """
-        Close a virtual-image tab, detaching its ROIs/annotations and freeing
-        its widget. Idempotent: a no-op if the tab is already closed.
+        Close a virtual-image tab (an image or volume tab), detaching any
+        ROIs/annotations and freeing its widget. Idempotent: a no-op if the
+        tab is already closed.
         """
         if tab is None or tab.closed:
             return
@@ -1026,7 +1081,8 @@ class DataViewer(QMainWindow):
         """
         The raw array currently shown in the virtual-image pane: the built-in
         image when the default tab is visible, else the visible plugin tab's
-        last-set image.
+        last-set image — a 2D image from an image tab, or a 3D volume from a
+        volume tab.
         """
         # ``virtual_image_tab_widget`` doesn't exist until setup_views();
         # during early init (menus are set up first) treat it as the default
@@ -1062,8 +1118,8 @@ class DataViewer(QMainWindow):
             return tabs[index - 1].widget
         return self.real_space_widget
 
-    def is_virtual_image_tab_visible(self, tab: VirtualImageTab) -> bool:
-        """True if ``tab`` is the currently-visible virtual-image tab."""
+    def is_virtual_image_tab_visible(self, tab) -> bool:
+        """True if ``tab`` is the currently-visible virtual-image tab (an image or volume tab)."""
         index = (
             self.virtual_image_tab_widget.currentIndex()
             if getattr(self, "virtual_image_tab_widget", None) is not None
@@ -1076,7 +1132,7 @@ class DataViewer(QMainWindow):
             return tabs[index - 1] is tab
         return False
 
-    def _update_tab_title(self, tab: VirtualImageTab):
+    def _update_tab_title(self, tab):
         """Update the pane's tab label for ``tab`` to its current title."""
         for i in range(self.virtual_image_tab_widget.count()):
             if self.virtual_image_tab_widget.widget(i) is tab.widget:
