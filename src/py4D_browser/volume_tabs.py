@@ -105,9 +105,10 @@ class VolumeTab(QtCore.QObject):
 
         self._widget = splitter
 
-        # Orientation aids in the 3D view.
-        self._grid = gl.GLGridItem()
-        self._view.addItem(self._grid)
+        # Orientation aid in the 3D view. (Deliberately no grid: a
+        # ``GLGridItem`` draws its lines in the z=0 plane, which — since the
+        # volume is centered on the origin — would cut straight through the
+        # middle of the volume. The axes are enough to read orientation.)
         self._axis = gl.GLAxisItem()
         self._view.addItem(self._axis)
 
@@ -175,7 +176,7 @@ class VolumeTab(QtCore.QObject):
         The current ``(dx, dy, dz)`` physical voxel size (a 3-tuple of
         floats), last set via :meth:`set_volume`. Defaults to
         ``(1.0, 1.0, 1.0)``: unit, isotropic voxels. The volume and the
-        orientation aids (grid, axes) are rendered in these physical units.
+        orientation axes are rendered in these physical units.
         """
         return self._voxel_size
 
@@ -210,11 +211,6 @@ class VolumeTab(QtCore.QObject):
         return self._alpha_editor
 
     @property
-    def grid(self):
-        """The ``pyqtgraph.opengl.GLGridItem`` providing an orientation grid."""
-        return self._grid
-
-    @property
     def axis(self):
         """The ``pyqtgraph.opengl.GLAxisItem`` showing the x/y/z axes."""
         return self._axis
@@ -237,8 +233,8 @@ class VolumeTab(QtCore.QObject):
         voxel_size : float or (float, float, float), optional
             The physical size of a single voxel: a scalar for isotropic
             voxels, or a ``(dx, dy, dz)`` 3-tuple for anisotropic ones. All
-            values must be finite and positive. The volume, the orientation
-            grid, and the axes are then rendered in these physical units
+            values must be finite and positive. The volume and the
+            orientation axes are then rendered in these physical units
             (an anisotropic size stretches the volume accordingly), and the
             initial camera distance is scaled to the volume's physical
             extent. If omitted, the tab's current voxel size is kept
@@ -424,12 +420,11 @@ class VolumeTab(QtCore.QObject):
         return tuple(s * v for s, v in zip(shape, self._voxel_size))
 
     def _size_aids(self, shape):
-        """Size the orientation grid and axes to the volume's footprint."""
+        """Size the orientation axes to the volume's footprint."""
         key = (shape, self._voxel_size)
         if self._aids_sized_for == key:
             return
         extents = self._physical_extents(shape)
-        self._grid.setSize(*extents)
         # The axes are a fixed orientation aid at the origin; match their
         # length to the volume's longest extent so they stay visible.
         length = max(extents)

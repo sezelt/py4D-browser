@@ -132,8 +132,7 @@ def test_voxel_size_defaults_to_unit_cubes(viewer):
         tab.set_volume(vol)
         assert tab.voxel_size == (1.0, 1.0, 1.0)
 
-        # with unit voxels the aids match the volume's shape
-        assert tab.grid.size() == [8, 6, 4]
+        # with unit voxels the axes span the volume's longest extent
         assert tab.axis.size() == [8, 8, 8]
     finally:
         api.close_virtual_image_tab(tab)
@@ -146,7 +145,6 @@ def test_voxel_size_scalar_isotropic(viewer):
         vol = np.random.default_rng(0).random((8, 6, 4), dtype=np.float32)
         tab.set_volume(vol, voxel_size=0.5)
         assert tab.voxel_size == (0.5, 0.5, 0.5)
-        assert tab.grid.size() == [4.0, 3.0, 2.0]
         # the axes match the longest physical extent
         assert tab.axis.size() == [4.0, 4.0, 4.0]
     finally:
@@ -160,7 +158,6 @@ def test_voxel_size_anisotropic(viewer):
         vol = np.random.default_rng(0).random((8, 6, 4), dtype=np.float32)
         tab.set_volume(vol, voxel_size=(1.0, 2.0, 0.25))
         assert tab.voxel_size == (1.0, 2.0, 0.25)
-        assert tab.grid.size() == [8.0, 12.0, 1.0]
         assert tab.axis.size() == [12.0, 12.0, 12.0]
     finally:
         api.close_virtual_image_tab(tab)
@@ -177,7 +174,7 @@ def test_voxel_size_kept_when_omitted(viewer):
         # re-setting a volume without a voxel size keeps the previous one
         tab.set_volume(np.random.default_rng(1).random((4, 6, 8), dtype=np.float32))
         assert tab.voxel_size == (2.0, 2.0, 2.0)
-        assert tab.grid.size() == [8.0, 12.0, 16.0]
+        assert tab.axis.size() == [16.0, 16.0, 16.0]
     finally:
         api.close_virtual_image_tab(tab)
 
@@ -206,7 +203,7 @@ def test_voxel_size_rejects_bad_values(viewer):
         # ...and a good value still works afterward
         tab.set_volume(vol, voxel_size=1.5)
         assert tab.voxel_size == (1.5, 1.5, 1.5)
-        assert tab.grid.size() == [6.0, 6.0, 6.0]
+        assert tab.axis.size() == [6.0, 6.0, 6.0]
     finally:
         api.close_virtual_image_tab(tab)
 
@@ -308,19 +305,18 @@ def test_close_volume_tab_cleans_up(viewer):
 ########## GL view contents ##########
 
 
-def test_view_contains_grid_axis_and_then_volume(viewer):
+def test_view_contains_axis_and_then_volume(viewer):
     api = PluginAPI(viewer)
     tab = api.create_volume_tab("Vol")
     try:
-        # before any volume: just the orientation aids (grid + axis)
-        assert len(tab.view.items) == 2
-        assert tab.grid in tab.view.items
+        # before any volume: just the orientation axes
+        assert len(tab.view.items) == 1
         assert tab.axis in tab.view.items
 
         # set_volume adds the GLVolumeItem (the 3D texture itself is only
         # uploaded at paint time, which never happens in these tests)
         tab.set_volume(np.random.default_rng(0).random((8, 8, 8), dtype=np.float32))
-        assert len(tab.view.items) == 3
+        assert len(tab.view.items) == 2
     finally:
         api.close_virtual_image_tab(tab)
 
