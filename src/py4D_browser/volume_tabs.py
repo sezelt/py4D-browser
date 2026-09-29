@@ -20,7 +20,7 @@ from typing import Optional
 
 import numpy as np
 from PyQt5 import QtCore, QtGui
-from PyQt5.QtWidgets import QLabel, QSplitter, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 import pyqtgraph as pg
 
@@ -83,27 +83,37 @@ class VolumeTab(QtCore.QObject):
         self._volume_item: Optional["gl.GLVolumeItem"] = None
         self._aids_sized_for: Optional[tuple] = None
 
-        # Split the tab: the 3D OpenGL view on the left, the transfer-function
-        # editors in a narrow panel on the right.
-        splitter = QSplitter()
+        # Lay out the tab: the 3D OpenGL view fills the space, with a
+        # fixed-height strip of transfer-function editors pinned to the
+        # bottom (at its natural size; not user-resizable).
         self._view = gl.GLViewWidget()
         self._view.setBackgroundColor("k")
-        splitter.addWidget(self._view)
 
+        # The editors sit side by side, centered in the bottom strip, each
+        # with its label to the left.
         panel = QWidget()
-        layout = QVBoxLayout(panel)
+        layout = QHBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(QLabel("Color"))
-        self._color_widget = pg.GradientWidget(maxDim=60)
-        layout.addWidget(self._color_widget)
-        layout.addWidget(QLabel("Alpha"))
-        self._alpha_widget = pg.GradientWidget(maxDim=60)
-        layout.addWidget(self._alpha_widget)
         layout.addStretch()
-        splitter.addWidget(panel)
-        splitter.setSizes([1000, 140])
+        for label, editor_attr in (
+            ("Color", "_color_widget"),
+            ("Alpha", "_alpha_widget"),
+        ):
+            group = QHBoxLayout()
+            group.addWidget(QLabel(label))
+            widget = pg.GradientWidget(maxDim=60)
+            group.addWidget(widget)
+            setattr(self, editor_attr, widget)
+            layout.addLayout(group)
+        layout.addStretch()
 
-        self._widget = splitter
+        widget = QWidget()
+        outer = QVBoxLayout(widget)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(self._view, 1)  # the view fills the remaining space
+        outer.addWidget(panel)  # its natural height; not resizable
+
+        self._widget = widget
 
         # Orientation aid in the 3D view. (Deliberately no grid: a
         # ``GLGridItem`` draws its lines in the z=0 plane, which — since the
@@ -117,6 +127,12 @@ class VolumeTab(QtCore.QObject):
         # surface and signal connections).
         self._color_editor = self._color_widget.item
         self._alpha_editor = self._alpha_widget.item
+
+        # Right-clicking a gradient editor pops up its colormap menu
+        # (GradientEditorItem.showMenu). Only each tick's alpha value
+        # matters in the alpha editor, so disable that menu there; the
+        # color editor keeps its (useful) colormap/preset choices.
+        self._alpha_editor.showMenu = lambda ev: None
 
         self._seed_editors()
 
@@ -136,7 +152,7 @@ class VolumeTab(QtCore.QObject):
 
     @property
     def widget(self):
-        """The underlying ``QSplitter`` backing this tab (3D view + editors)."""
+        """The tab's backing ``QWidget`` (3D view on top, editor strip below)."""
         return self._widget
 
     @property
@@ -206,7 +222,8 @@ class VolumeTab(QtCore.QObject):
         """
         The ``pyqtgraph`` ``GradientEditorItem`` for the alpha (opacity)
         transfer function. Edit its ticks to change the volume's transparency;
-        in this editor only each tick's alpha value matters.
+        in this editor only each tick's alpha value matters (and its right-click
+        colormap menu is disabled, as there is no colormap to choose).
         """
         return self._alpha_editor
 
@@ -325,16 +342,16 @@ class VolumeTab(QtCore.QObject):
         """
         Give a fresh tab sensible default transfer functions:
 
-        - Color: the browser's default virtual-image colormap (the
-          ``gui/realspace_colormap`` setting, default ``"thermal"``) if it
-          resolves, matching the built-in pane's default appearance.
+        - Color: the volume tab's default colormap (the
+          ``gui/volume_colormap`` setting, default ``"thermal"`` — the same
+          default as the built-in virtual image) if it resolves.
         - Alpha: transparent at the low end, opaque at the high end, so the
           volume is see-through in its faintest regions. (In the alpha
           editor, only each tick's alpha value matters.)
         """
         cmap = None
         if self._viewer is not None:
-            cmap_name = self._viewer.settings.value("gui/realspace_colormap", "thermal")
+            cmap_name = self._viewer.settings.value("gui/volume_colormap", "thermal")
             cmap = try_get_cmap(cmap_name)
         if cmap is not None:
             self._color_editor.setColorMap(cmap)

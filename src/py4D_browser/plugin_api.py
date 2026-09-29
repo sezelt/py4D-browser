@@ -54,14 +54,14 @@ class PluginAPIVersionError(Exception):
 
 class PluginAPI1:
     """
-    The version 1.7 plugin API (major version 1).
+    The version 1.6 plugin API (major version 1).
 
     Instances are created by the loader (or by hand for testing) with a
     reference to the DataViewer, and passed to plugins as ``api``. All
     state lives in the viewer; this object is a thin, stable facade over it.
     """
 
-    api_version = (1, 7)
+    api_version = (1, 6)
 
     def __init__(self, viewer: "DataViewer"):
         # Hold a strong reference to the viewer; the API is a facade over it.
@@ -117,7 +117,7 @@ class PluginAPI1:
         self.create_virtual_image_tab = partial(viewer.create_virtual_image_tab)
         self.close_virtual_image_tab = partial(viewer.close_virtual_image_tab)
 
-        # 3D volume tabs (v1.7): render a 3D volume in a tab alongside the
+        # 3D volume tabs (v1.6): render a 3D volume in a tab alongside the
         # built-in virtual image, with user-adjustable color/alpha transfer
         # functions. See the "3D volume tabs" section in PLUGINS.md. (Closing
         # works through the same close_virtual_image_tab as image tabs.)

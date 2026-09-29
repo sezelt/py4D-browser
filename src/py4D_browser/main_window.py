@@ -905,7 +905,7 @@ class DataViewer(QMainWindow):
         )
         self.statusBar().addPermanentWidget(self.result_rescale_button)
 
-    ########## virtual-image tabs (plugin API v1.6; 3D volume tabs v1.7) ##########
+    ########## virtual-image tabs (plugin API v1.6) ##########
 
     def create_virtual_image_tab(
         self, title: str, select: bool = False

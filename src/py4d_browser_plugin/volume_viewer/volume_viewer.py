@@ -2,7 +2,7 @@
 A development-only plugin: load a 3D volume from a multi-page TIFF image
 stack (via a file picker) and display it in a new 3D volume tab.
 
-Useful for trying out the volume-tab rendering (API v1.7) with arbitrary
+Useful for trying out the volume-tab rendering (API v1.6) with arbitrary
 volumes without loading a 4D-STEM dataset. It is ``dev_only``: it loads
 only when the ``gui/dev_plugins`` setting is enabled.
 """
@@ -20,7 +20,7 @@ class VolumeViewerPlugin(QWidget):
 
     # required for py4DGUI to recognize this as a plugin.
     plugin_id = "py4DGUI.internal.volume_viewer"
-    api_version = (1, 7)
+    api_version = (1, 6)
     uses_plugin_menu = True
     display_name = "Volume Viewer (dev)"
     dev_only = True
@@ -84,7 +84,7 @@ class VolumeViewerPlugin(QWidget):
 
         title = self._next_title("Volume")
         tab = api.create_volume_tab(title, select=True)
-        tab.set_volume(volume)
+        tab.set_volume(volume, voxel_size=(5,1,1))
         api.status_bar.showMessage(
             f"Loaded a {volume.shape[0]}×{volume.shape[1]}×{volume.shape[2]} "
             f"volume from '{path}' into the '{title}' tab.",

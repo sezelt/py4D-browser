@@ -1088,7 +1088,7 @@ def update_tooltip(self: "DataViewer"):
             (self._visible_real_space_widget, self.current_virtual_image),
             (self.fft_widget, self.unscaled_fft_image),
         ]:
-            # A volume tab's widget is a QSplitter around a 3D OpenGL view,
+            # A volume tab's widget is a QWidget around a 3D OpenGL view,
             # not a 2D image scene: there's no 2D pixel to sample, so skip
             # it (and move on to the other panes).
             if getattr(scene, "getView", None) is None:

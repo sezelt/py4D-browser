@@ -100,11 +100,11 @@ The following design guidelines should still be followed:
 * Likewise, keep references to virtual-image tabs only as long as you need them — i.e. while the tab is open and you intend to drive it. A **closed** tab is not freed by the browser (its raw image array remains reachable through `tab.image`), so holding a reference to a tab after `close_virtual_image_tab` pins that image in memory until the process exits. In particular, do not accumulate a list of every tab you have ever created and keep it for the life of the session.
 * The plugin is allowed to read/write from the QSettings of the GUI, but should only do so in a top-level section with the same name as `plugin_id`, i.e. `value = self.api.settings.value(self.plugin_id + "/my_setting", default_value)`.
 
-## The Plugin API (v1.7)
+## The Plugin API (v1.6)
 
-The v1.7 API object is a broker between the plugin and the browser. Plugins should use only this surface; the browser is free to change its internals as long as the API object keeps working. v1.7 is a strict superset of v1.0 — everything below that is not marked new in v1.6 or v1.7 was also present in v1.0. The full v1.7 surface:
+The v1.6 API object is a broker between the plugin and the browser. Plugins should use only this surface; the browser is free to change its internals as long as the API object keeps working. v1.6 is a strict superset of v1.0 — everything below that is not marked new in v1.6 was also present in v1.0. The full v1.6 surface:
 
-* **`api_version`** — `(1, 7)`, for introspection.
+* **`api_version`** — `(1, 6)`, for introspection.
 * **`datacube`** — read-only access to the currently loaded `DataCube` (or `None`). Mutating the cube object (e.g. its calibration) is fine; to replace the whole cube, use `set_datacube` below.
 * **`set_datacube(datacube, refresh=True)`** — replace the currently loaded datacube (e.g. a cube a plugin computed, or read from a file format the browser doesn't natively open). With `refresh` (the default) the normal post-load machinery runs: both views are reset and `signal_datacube_changed` is emitted. Pass `refresh=False` to swap in the cube without redrawing or notifying listeners. In either case the previous cube is released (a garbage-collection pass is run) so its memory is reclaimed.
 * **Signals** — `signal_diffraction_data_changed`, `signal_virtual_image_data_changed`, `signal_datacube_changed`, and (new in v1.6) `signal_current_virtual_image_changed`. These are the live signals from the main window, so `connect`/`disconnect` through the API object behaves exactly as if they were accessed directly.
@@ -115,7 +115,7 @@ The v1.7 API object is a broker between the plugin and the browser. Plugins shou
 * **Image-shape accessors (new in v1.6)** — `diffraction_image_shape` and `real_space_image_shape` return the shape of the raw (unscaled) image currently on display in the built-in diffraction / real-space views, or `None` if no image is loaded. These expose the *shape* (not the full array) so a plugin can size ROIs against the displayed view without retaining a reference to a large array.
 * **Detector getters** — `get_diffraction_detector()` and `get_virtual_image_detector()`, each returning a `DetectorInfo` (see below).
 * **Virtual-image tabs (new in v1.6)** — `create_virtual_image_tab(title)`, `close_virtual_image_tab(tab)`, `virtual_image_tabs`, `current_virtual_image`, `current_diffraction_image`. See [Virtual-image tabs](#virtual-image-tabs-v16) below.
-* **3D volume tabs (new in v1.7)** — `create_volume_tab(title, select=False)` adds a tab that renders a 3D volume (OpenGL, with user-adjustable color/alpha transfer functions). Volume tabs are tracked in `virtual_image_tabs` and closed with the same `close_virtual_image_tab` as image tabs; when a volume tab is visible, `current_virtual_image` is a 3D array. See [3D volume tabs](#3d-volume-tabs-v17) below.
+* **3D volume tabs (new in v1.6)** — `create_volume_tab(title, select=False)` adds a tab that renders a 3D volume (OpenGL, with user-adjustable color/alpha transfer functions). Volume tabs are tracked in `virtual_image_tabs` and closed with the same `close_virtual_image_tab` as image tabs; when a volume tab is visible, `current_virtual_image` is a 3D array. See [3D volume tabs](#3d-volume-tabs-v16) below.
 * **Qt plumbing** — `qtapp` (the `QApplication`), `qt_window` (a `QWidget` to use as a dialog parent — **not** the main window itself), `status_bar` (the status bar), and `settings` (the QSettings).
 
 ### Virtual-image tabs (v1.6)
@@ -163,7 +163,7 @@ def close(self):
             self.api.close_virtual_image_tab(tab)
 ```
 
-### 3D volume tabs (v1.7)
+### 3D volume tabs (v1.6)
 
 A **volume tab** is another kind of plugin tab in the virtual-image pane: instead of a 2D image it renders a **3D volume** with `pyqtgraph`'s OpenGL volume rendering (`pyqtgraph.opengl.GLViewWidget` + `GLVolumeItem`). The user can orbit/pan/zoom with the mouse and adjust the appearance live through two transfer-function editors in the tab. Volume tabs are otherwise treated like virtual-image tabs: they are tracked in `virtual_image_tabs`, closed with `close_virtual_image_tab(tab)` / `tab.close()`, and when one is the visible tab `current_virtual_image` returns its 3D array (2D for the built-in tab and image tabs, 3D for volume tabs).
 
@@ -179,10 +179,10 @@ A `VolumeTab` object (returned by `create_volume_tab`) exposes:
 * **`levels`** — the current `(low, high)` display range (or `None` before any `set_volume`).
 * **`voxel_size`** — the current `(dx, dy, dz)` physical voxel size (a 3-tuple of floats), last set via `set_volume`; defaults to `(1.0, 1.0, 1.0)` (unit, isotropic voxels). Read-only.
 * **`volume`** / **`image`** — the last array passed to `set_volume` (or `None`). `image` is an alias so the tab is interchangeable with a `VirtualImageTab` where a tab's array is read; for a volume tab it is the 3D volume.
-* **`color_editor`** / **`alpha_editor`** — the two `pyqtgraph` `GradientEditorItem` transfer functions, shown in the tab's side panel and adjustable by the user at any time (edits re-render live). In the **color** editor only each tick's *color* matters (its alpha is ignored); in the **alpha** editor only each tick's *alpha* matters. A programmatic edit must pass `QtGui.QColor` objects as tick colors (pyqtgraph stores them as-is and later calls `QColor` methods on them). A fresh tab is seeded with the browser's default virtual-image colormap (the `gui/realspace_colormap` setting) and a transparent→opaque alpha ramp.
+* **`color_editor`** / **`alpha_editor`** — the two `pyqtgraph` `GradientEditorItem` transfer functions, shown in the tab's bottom strip and adjustable by the user at any time (edits re-render live). In the **color** editor only each tick's *color* matters (its alpha is ignored); in the **alpha** editor only each tick's *alpha* matters (its right-click colormap menu is disabled). A programmatic edit must pass `QtGui.QColor` objects as tick colors (pyqtgraph stores them as-is and later calls `QColor` methods on them). A fresh tab is seeded with the volume tab's default colormap (the `gui/volume_colormap` ini setting, default `thermal` — the same default as the built-in virtual image) and a transparent→opaque alpha ramp.
 * **`view`** — the `pyqtgraph.opengl.GLViewWidget` showing the volume. Built-in mouse controls: drag = orbit, Ctrl+drag = pan (view relative), middle-drag = pan (view upright), wheel = zoom, arrow keys = orbit. The camera can also be driven programmatically with `setCameraPosition` / `setCameraParams` / `cameraParams`.
 * **`axis`** — the orientation axes (`GLAxisItem`) in the view.
-* **`title`** (get/set), **`widget`** (the underlying `QSplitter`: the 3D view plus the transfer-function panel), **`closed`**.
+* **`title`** (get/set), **`widget`** (the tab's backing `QWidget`: the 3D view plus the fixed transfer-function strip), **`closed`**.
 * **`signal_data_changed`** — emitted (with the tab as its argument) after every `set_volume`.
 
 **What is and isn't 2D-only.** The display-oriented paths assume a 2D rendered image, so they **bail with a status message** when a volume tab is visible: "PNG (display)" / "TIFF (display)" exports, and copying to the clipboard. **"TIFF (raw)" works** — it writes the raw array, so it exports the 3D volume. The built-in virtual-image FFT result modes **skip silently** when the visible image is a 3D volume (they have no 3D equivalent). If you register your own result callback (`register_result_callback`), handle the 3D case yourself.
