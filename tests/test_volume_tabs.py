@@ -1,5 +1,5 @@
 """
-Tests for 3D volume tabs (API v1.7): a plugin tab in the virtual-image pane
+Tests for 3D volume tabs (API v1.6): a plugin tab in the virtual-image pane
 that renders a 3D volume with pyqtgraph's OpenGL volume rendering, with
 user-adjustable color/alpha transfer functions.
 
@@ -21,7 +21,7 @@ from py4D_browser.volume_tabs import VolumeTab  # noqa: E402
 
 
 def test_create_volume_tab(viewer):
-    from PyQt5.QtWidgets import QTabBar, QSplitter
+    from PyQt5.QtWidgets import QTabBar, QWidget
 
     api = PluginAPI(viewer)
     tab_widget = viewer.virtual_image_tab_widget
@@ -30,7 +30,7 @@ def test_create_volume_tab(viewer):
     assert tab_widget.count() == 1
     assert tab_widget.tabBar().isHidden()
 
-    # the API exposes create_volume_tab (new in v1.7)
+    # the API exposes create_volume_tab (new in v1.6)
     assert api.create_volume_tab is not None
 
     tab = api.create_volume_tab("Vol")
@@ -40,9 +40,9 @@ def test_create_volume_tab(viewer):
         assert tab_widget.widget(0) is viewer.real_space_widget
         assert tab_widget.widget(1) is tab.widget
 
-        # the tab's backing widget is a QSplitter (3D view + editor panel),
-        # not a pyqtgraph.ImageView like an image tab's
-        assert isinstance(tab.widget, QSplitter)
+        # the tab's backing widget is a plain QWidget (3D view + editor
+        # strip), not a pyqtgraph.ImageView like an image tab's
+        assert isinstance(tab.widget, QWidget)
         assert isinstance(tab, VolumeTab)
 
         # labeled, tracked, and given a close button
@@ -208,6 +208,60 @@ def test_voxel_size_rejects_bad_values(viewer):
         api.close_virtual_image_tab(tab)
 
 
+def test_z_slider_adjusts_first_axis_voxel_size(viewer):
+    api = PluginAPI(viewer)
+    tab = api.create_volume_tab("Vol")
+    try:
+        vol = np.random.default_rng(0).random((8, 6, 4), dtype=np.float32)
+        tab.set_volume(vol, voxel_size=(1.0, 2.0, 3.0))
+
+        # moving the slider changes only the first-axis (z) size...
+        tab._z_slider.setValue(400)  # 10 ** (-3 + 4) = 10
+        z = 10.0 ** (-3.0 + 400 / 100.0)
+        assert tab.voxel_size[0] == pytest.approx(z)
+        assert tab.voxel_size[1:] == (2.0, 3.0)
+        # ...and the axes are resized to the new physical extent
+        # (extents 8×10, 6×2, 4×3 -> longest is 80)
+        assert tab.axis.size() == [80.0, 80.0, 80.0]
+
+        # the readout shows the live value
+        assert tab._z_readout.text() != ""
+    finally:
+        api.close_virtual_image_tab(tab)
+
+
+def test_set_volume_syncs_z_slider(viewer):
+    api = PluginAPI(viewer)
+    tab = api.create_volume_tab("Vol")
+    try:
+        vol = np.random.default_rng(0).random((8, 8, 8), dtype=np.float32)
+        tab.set_volume(vol, voxel_size=5.0)
+
+        # the slider position round-trips back to the set size (log scale,
+        # one step = 1/100 of a decade)
+        z = 10.0 ** (-3.0 + tab._z_slider.value() / 100.0)
+        assert z == pytest.approx(5.0, rel=0.01)
+        assert tab._z_readout.text() == "5"
+    finally:
+        api.close_virtual_image_tab(tab)
+
+
+def test_z_slider_set_before_volume_is_used(viewer):
+    api = PluginAPI(viewer)
+    tab = api.create_volume_tab("Vol")
+    try:
+        # adjust the z size before any volume is set (default is 1.0)
+        tab._z_slider.setValue(100)  # 10 ** (-3 + 1) = 0.01
+        assert tab.voxel_size == (0.01, 1.0, 1.0)
+
+        # ...and it is kept when a volume is set without an explicit size
+        vol = np.random.default_rng(0).random((8, 8, 8), dtype=np.float32)
+        tab.set_volume(vol)
+        assert tab.voxel_size == (0.01, 1.0, 1.0)
+    finally:
+        api.close_virtual_image_tab(tab)
+
+
 ########## transfer-function editors ##########
 
 
@@ -225,6 +279,15 @@ def test_editors_are_gradient_items_with_expected_luts(viewer):
         assert color_lut.shape == (256, 3)
         assert color_lut.dtype == np.ubyte
 
+        # a fresh tab's color transfer function is seeded with the
+        # gui/volume_colormap default (thermal, the same default as the
+        # built-in virtual image)
+        from py4D_browser.utils import try_get_cmap
+
+        ref = GradientEditorItem()
+        ref.setColorMap(try_get_cmap("thermal"))
+        assert np.array_equal(color_lut, ref.getLookupTable(256, alpha=False))
+
         alpha_lut = tab.alpha_editor.getLookupTable(256, alpha=True)
         assert alpha_lut.shape == (256, 4)
         assert alpha_lut.dtype == np.ubyte
@@ -233,6 +296,47 @@ def test_editors_are_gradient_items_with_expected_luts(viewer):
         # high end
         assert alpha_lut[0, 3] == 0
         assert alpha_lut[-1, 3] == 255
+    finally:
+        api.close_virtual_image_tab(tab)
+
+
+def test_color_seed_respects_volume_colormap_setting(viewer):
+    from pyqtgraph.graphicsItems.GradientEditorItem import GradientEditorItem
+
+    from py4D_browser.utils import try_get_cmap
+
+    api = PluginAPI(viewer)
+    viewer.settings.setValue("gui/volume_colormap", "inferno")
+    try:
+        # the ini setting overrides the default for fresh tabs
+        tab = api.create_volume_tab("Vol")
+        try:
+            ref = GradientEditorItem()
+            ref.setColorMap(try_get_cmap("inferno"))
+            assert np.array_equal(
+                tab.color_editor.getLookupTable(256, alpha=False),
+                ref.getLookupTable(256, alpha=False),
+            )
+        finally:
+            api.close_virtual_image_tab(tab)
+    finally:
+        viewer.settings.remove("gui/volume_colormap")
+
+
+def test_alpha_editor_right_click_colormap_menu_is_disabled(viewer):
+    from pyqtgraph.graphicsItems.GradientEditorItem import GradientEditorItem
+
+    api = PluginAPI(viewer)
+    tab = api.create_volume_tab("Vol")
+    try:
+        # the color editor keeps its right-click colormap/preset menu
+        assert tab.color_editor.showMenu.__func__ is GradientEditorItem.showMenu
+
+        # the alpha editor's showMenu is replaced with an instance-level
+        # no-op (it has no colormap to choose): calling it does nothing —
+        # the original would raise here, as it calls ev.screenPos()
+        assert "showMenu" in vars(tab.alpha_editor)
+        tab.alpha_editor.showMenu(None)
     finally:
         api.close_virtual_image_tab(tab)
 

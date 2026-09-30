@@ -4,9 +4,10 @@ volume alongside the built-in virtual image, using pyqtgraph's OpenGL volume
 rendering.
 
 A :class:`VolumeTab` wraps a ``pyqtgraph.opengl.GLViewWidget`` (which provides
-built-in mouse controls: drag to orbit, Ctrl+drag to pan, wheel to zoom) and
-two ``GradientEditorItem`` s — a color and an alpha transfer function — that
-the user can adjust live. It is created and owned by the
+built-in mouse controls: drag to orbit, Ctrl+drag to pan, wheel to zoom), two
+``GradientEditorItem`` s — a color and an alpha transfer function — and a
+log-scale slider for the first-axis (z/stack) voxel size, all adjustable by
+the user live. It is created and owned by the
 :class:`~py4D_browser.main_window.DataViewer` (see ``create_volume_tab`` /
 ``close_virtual_image_tab``), which is what performs the actual add/remove of
 the tab in the pane and tears the tab down when the user closes it.
@@ -20,7 +21,7 @@ from typing import Optional
 
 import numpy as np
 from PyQt5 import QtCore, QtGui
-from PyQt5.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QHBoxLayout, QLabel, QSlider, QVBoxLayout, QWidget
 
 import pyqtgraph as pg
 
@@ -64,6 +65,14 @@ class VolumeTab(QtCore.QObject):
         imported), since the tab cannot render without it.
     """
 
+    # Log-scale mapping for the z-size slider: position `v` is
+    # 10 ** (_Z_SLIDER_LOG_MIN + v / 100) — one step is 1/100 of a decade,
+    # covering 10**-3 .. 10**3 (voxel sizes span orders of magnitude, so a
+    # linear slider would be useless below ~1).
+    _Z_SLIDER_MIN = 0
+    _Z_SLIDER_MAX = 600
+    _Z_SLIDER_LOG_MIN = -3.0
+
     # Emitted (with the tab itself as the argument) after :meth:`set_volume`.
     signal_data_changed = QtCore.pyqtSignal(object)
 
@@ -105,7 +114,27 @@ class VolumeTab(QtCore.QObject):
             group.addWidget(widget)
             setattr(self, editor_attr, widget)
             layout.addLayout(group)
+
+        # A log-scale slider for the first-axis (z/stack) voxel size, with a
+        # live readout: the common case is a stack of images whose x/y pixels
+        # are equal size, so adjusting just the z size is what it takes to
+        # scale the volume correctly.
+        z_group = QHBoxLayout()
+        z_group.addWidget(QLabel("z size"))
+        z_slider = QSlider(QtCore.Qt.Horizontal)
+        z_slider.setRange(self._Z_SLIDER_MIN, self._Z_SLIDER_MAX)
+        z_slider.setFixedWidth(150)
+        z_readout = QLabel()
+        z_readout.setFixedWidth(50)
+        z_group.addWidget(z_slider)
+        z_group.addWidget(z_readout)
+        layout.addLayout(z_group)
         layout.addStretch()
+
+        self._z_slider = z_slider
+        self._z_readout = z_readout
+        z_slider.valueChanged.connect(self._on_z_slider_changed)
+        self._sync_z_slider()  # initial position (1.0) + readout
 
         widget = QWidget()
         outer = QVBoxLayout(widget)
@@ -192,7 +221,8 @@ class VolumeTab(QtCore.QObject):
         The current ``(dx, dy, dz)`` physical voxel size (a 3-tuple of
         floats), last set via :meth:`set_volume`. Defaults to
         ``(1.0, 1.0, 1.0)``: unit, isotropic voxels. The volume and the
-        orientation axes are rendered in these physical units.
+        orientation axes are rendered in these physical units. The tab's
+        z-size slider live-adjusts the first component.
         """
         return self._voxel_size
 
@@ -255,7 +285,8 @@ class VolumeTab(QtCore.QObject):
             (an anisotropic size stretches the volume accordingly), and the
             initial camera distance is scaled to the volume's physical
             extent. If omitted, the tab's current voxel size is kept
-            (default ``(1.0, 1.0, 1.0)`` — unit cubes).
+            (default ``(1.0, 1.0, 1.0)`` — unit cubes). The tab's z-size
+            slider live-adjusts the first component.
         """
         if self._closed:
             raise RuntimeError("Cannot set the volume of a closed volume tab.")
@@ -271,6 +302,7 @@ class VolumeTab(QtCore.QObject):
 
         if voxel_size is not None:
             self._voxel_size = self._parse_voxel_size(voxel_size)
+        self._sync_z_slider()
 
         self._volume = volume
         if reset:
@@ -415,12 +447,25 @@ class VolumeTab(QtCore.QObject):
             self._view.setCameraPosition(distance=max(extents) * 1.5)
         else:
             self._volume_item.setData(rgba)
-        # Place the item: the data spans voxel indices (0,0,0)..shape, so
-        # scale by the voxel sizes and center the physical box on the
-        # origin (so the built-in orbit control pivots around it). Applied
-        # every recompute, since a new volume may have a different shape
-        # or voxel size. (Order: scale in local coords, then translate in
-        # parent coords -> transform T*S.)
+        # Place the item for the current voxel size (a new volume may have
+        # a different shape, and the z-size slider can change it at any
+        # time).
+        self._apply_voxel_geometry()
+
+    def _apply_voxel_geometry(self):
+        """
+        Place and scale the displayed volume for the current voxel size.
+
+        The data spans voxel indices (0, 0, 0)..shape, so the item is
+        scaled by the voxel sizes and the physical box is centered on the
+        origin (so the built-in orbit control pivots around it). (Order:
+        scale in local coords, then translate in parent coords -> transform
+        T*S.) The orientation aids are kept in step with the volume's
+        footprint.
+        """
+        if self._volume is None or self._volume_item is None:
+            return
+        shape = self._volume.shape
         self._volume_item.resetTransform()
         self._volume_item.scale(*self._voxel_size)
         self._volume_item.translate(
@@ -429,8 +474,35 @@ class VolumeTab(QtCore.QObject):
             -shape[2] * self._voxel_size[2] / 2,
             local=False,
         )
-        # Keep the orientation aids in step with the volume's footprint.
         self._size_aids(shape)
+
+    ########## z-size slider ##########
+
+    def _z_from_slider(self, value):
+        """The first-axis voxel size encoded by a slider position (log scale)."""
+        return 10.0 ** (self._Z_SLIDER_LOG_MIN + value / 100.0)
+
+    def _on_z_slider_changed(self, value):
+        # Live first-axis (z/stack) voxel-size adjustment: update the size
+        # and re-place the displayed volume (transform only — a voxel-size
+        # change does not alter the RGBA data, so no recompute is needed).
+        z = self._z_from_slider(value)
+        self._voxel_size = (z, self._voxel_size[1], self._voxel_size[2])
+        self._z_readout.setText(f"{z:.4g}")
+        self._apply_voxel_geometry()
+
+    def _sync_z_slider(self):
+        """
+        Reflect the tab's current first-axis voxel size in the slider
+        (clamped to its range) and the readout.
+        """
+        z = self._voxel_size[0]
+        value = int(round((np.log10(z) - self._Z_SLIDER_LOG_MIN) * 100))
+        value = min(max(value, self._Z_SLIDER_MIN), self._Z_SLIDER_MAX)
+        self._z_slider.blockSignals(True)
+        self._z_slider.setValue(value)
+        self._z_slider.blockSignals(False)
+        self._z_readout.setText(f"{z:.4g}")
 
     def _physical_extents(self, shape):
         """The volume's ``(dx, dy, dz)`` size in physical units."""
