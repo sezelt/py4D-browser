@@ -21,19 +21,14 @@ class VolumeViewerPlugin(QWidget):
     # required for py4DGUI to recognize this as a plugin.
     plugin_id = "py4DGUI.internal.volume_viewer"
     api_version = (1, 6)
-    uses_plugin_menu = True
-    display_name = "Volume Viewer (dev)"
+    uses_single_action = True
+    display_name = "Render TIFF stack as volume"
     dev_only = True
 
-    def __init__(self, api, plugin_menu, **kwargs):
+    def __init__(self, api, plugin_action, **kwargs):
         super().__init__()
         self.api = api
-        # Note: we do not keep a reference to the tab we create. A closed
-        # tab is not freed by the browser (it still holds its raw volume
-        # array in `tab.image`), so retaining it would pin that memory until
-        # exit.
-        open_action = plugin_menu.addAction("Open TIFF Stack as Volume Tab…")
-        open_action.triggered.connect(self.open_tiff_stack)
+        plugin_action.triggered.connect(self.open_tiff_stack)
 
     def close(self):
         pass
@@ -82,6 +77,10 @@ class VolumeViewerPlugin(QWidget):
             )
             return
 
+        # Note: we do not keep a reference to the tab we create. A closed
+        # tab is not freed by the browser (it still holds its raw volume
+        # array in `tab.image`), so retaining it would pin that memory until
+        # exit.
         title = self._next_title("Volume")
         tab = api.create_volume_tab(title, select=True)
         tab.set_volume(volume, voxel_size=(5,1,1))

@@ -27,9 +27,7 @@ def _get_or_create_tcbf_tab(viewer, title="tcBF"):
     """
     Return the existing "tcBF" virtual-image tab if one is open, else create
     it. Reusing the tab means re-running tcBF updates the same pane instead of
-    piling up a new tab each time. ``viewer`` is anything exposing
-    ``virtual_image_tabs`` and ``create_virtual_image_tab`` (the API object or
-    the DataViewer itself).
+    piling up a new tab each time.
     """
     for tab in viewer.virtual_image_tabs:
         if tab.title == title:
@@ -47,6 +45,10 @@ class tcBFPlugin(QWidget):
 
     uses_plugin_menu = True
     display_name = "Tilt-Corrected BF"
+
+    # the tcBF plugin is marked as dev-only, as fast-acbf is now the preferred
+    # package for this workflow: github.com/chiahao3/py4d-browser-fast-acbf
+    dev_only = True
 
     def __init__(self, api, plugin_menu, **kwargs):
         super().__init__()
