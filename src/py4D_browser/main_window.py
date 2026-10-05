@@ -995,13 +995,17 @@ class DataViewer(QMainWindow):
 
         This mirrors how the built-in real-space pane is given its default
         colormap in ``setup_views``: read the setting, resolve it through the
-        browser's colormap lookup, and apply it if it resolves. Each tab keeps
-        its own colormap from then on (see
+        browser's colormap lookup, and apply it if it resolves. If the setting
+        names a colormap the lookup cannot resolve, fall back to ``"thermal"``
+        so a fresh tab never starts on pyqtgraph's default greyscale. Each tab
+        keeps its own colormap from then on (see
         :attr:`~py4D_browser.virtual_image_tabs.VirtualImageTab.colormap`), so
         a user who changes one tab's colormap does not move the others.
         """
         cmap_name = self.settings.value("gui/realspace_colormap", "thermal")
         cmap = try_get_cmap(cmap_name)
+        if cmap is None:
+            cmap = try_get_cmap("thermal")
         if cmap is not None:
             tab.colormap = cmap
 

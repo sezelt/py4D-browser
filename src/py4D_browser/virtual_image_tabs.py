@@ -100,16 +100,28 @@ class VirtualImageTab(QtCore.QObject):
     @property
     def colormap(self):
         """
-        The tab's active pyqtgraph colormap (a ``pg.ColorMap`` object, or
-        ``None`` if the tab is using pyqtgraph's default).
+        The tab's active pyqtgraph colormap, a ``pg.ColorMap`` reconstructed
+        from the tab's histogram gradient (``None`` if the gradient has no
+        ticks).
+
+        The histogram gradient is the single source of truth for what the tab
+        renders (pyqtgraph's ``ImageView`` wires the image item to it), so the
+        colormap is read back from there rather than from the image item's
+        one-shot lookup table.
 
         Each tab keeps its own colormap. A new tab is seeded with the browser's
         default virtual-image colormap (the ``gui/realspace_colormap`` setting,
-        the same default the built-in pane starts with — see
-        ``create_virtual_image_tab``). Set this property (a ``pg.ColorMap`` or a
-        colormap name) to change the tab independently of the other panes.
+        falling back to ``"thermal"`` — see ``create_virtual_image_tab``). Set
+        this property (a ``pg.ColorMap`` or a colormap name) to change the tab
+        independently of the other panes.
         """
-        return self._widget.getImageItem()._colorMap
+        ticks = (
+            self._widget.getHistogramWidget().gradient.saveState().get("ticks")
+            or []
+        )
+        if not ticks:
+            return None
+        return pg.ColorMap([t[0] for t in ticks], [t[1] for t in ticks])
 
     @colormap.setter
     def colormap(self, value):
@@ -129,7 +141,13 @@ class VirtualImageTab(QtCore.QObject):
             cmap = try_get_cmap(cmap)
         if cmap is None:
             raise ValueError(f"Unknown colormap: {value!r}")
-        self._widget.getImageItem().setColorMap(cmap)
+        # Set the colormap at the ImageView level so the tab's histogram
+        # gradient — the single source of pyqtgraph for what the tab renders —
+        # is updated. Setting it on the image item alone would leave the
+        # gradient on pyqtgraph's default greyscale, and any gradient change
+        # (e.g. the user adjusting the strip) would re-push greyscale over
+        # the image. This is the same call the built-in real-space pane uses.
+        self._widget.setColorMap(cmap)
 
     @property
     def rois(self):
