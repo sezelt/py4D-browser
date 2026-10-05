@@ -227,7 +227,7 @@ class PluginAPI1:
 # New major versions are added here; older ones are kept so that plugins
 # written against them continue to load.
 SUPPORTED_API_VERSIONS = {
-    1: (7, PluginAPI1),
+    1: (6, PluginAPI1),
 }
 
 # The newest API version provided by this browser.
