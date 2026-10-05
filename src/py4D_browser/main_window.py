@@ -856,6 +856,14 @@ class DataViewer(QMainWindow):
 
         self.stats_button.setMenu(self.stats_menu)
 
+        # Keep the "Virtual Image" section of the statistics menu in sync with
+        # whichever tab is visible. This fires on tab switches, when the
+        # visible tab's data changes, and on built-in virtual-image updates
+        # while the default tab is visible.
+        self.signal_current_virtual_image_changed.connect(
+            self._update_visible_virtual_image_statistics
+        )
+
         self.cursor_value_text = QLabel("")
         self.diffraction_space_view_text = QLabel("Slice")
         self.real_space_view_text = QLabel("Scan Position")
@@ -1080,6 +1088,51 @@ class DataViewer(QMainWindow):
         # The visible tab changed (user switch, or a visible tab was closed).
         self.signal_current_virtual_image_changed.emit()
 
+    def _update_visible_virtual_image_statistics(self):
+        """
+        Update the "Virtual Image" section of the statistics menu (the
+        ``realspace_title`` and the five ``realspace_statistics_actions``)
+        to show the name and summary stats of whichever virtual-image tab is
+        currently visible — the built-in virtual image or a plugin's
+        image/volume tab.
+
+        Connected to ``signal_current_virtual_image_changed``, so this runs
+        on tab switches, when the visible tab's data changes, and on built-in
+        virtual-image updates while the default tab is visible. The stats are
+        computed from the same raw array ``current_virtual_image`` exposes
+        (2D image or 3D volume).
+        """
+        index = (
+            self.virtual_image_tab_widget.currentIndex()
+            if getattr(self, "virtual_image_tab_widget", None) is not None
+            else 0
+        )
+        if index <= 0:
+            name = "Virtual Image"
+        else:
+            tabs = self.virtual_image_tabs
+            name = (
+                tabs[index - 1].title
+                if index - 1 < len(tabs)
+                else "Virtual Image"
+            )
+
+        image = self.current_virtual_image
+        if image is None:
+            stats_text = [""] * 5
+        else:
+            stats_text = [
+                f"Min:\t{image.min():.5g}",
+                f"Max:\t{image.max():.5g}",
+                f"Mean:\t{image.mean():.5g}",
+                f"Sum:\t{image.sum():.5g}",
+                f"Std:\t{np.std(image):.5g}",
+            ]
+
+        self.realspace_title.setText(name)
+        for t, m in zip(stats_text, self.realspace_statistics_actions):
+            m.setText(t)
+
     @property
     def current_virtual_image(self):
         """
@@ -1142,6 +1195,10 @@ class DataViewer(QMainWindow):
             if self.virtual_image_tab_widget.widget(i) is tab.widget:
                 self.virtual_image_tab_widget.setTabText(i, tab.title)
                 break
+        if self.is_virtual_image_tab_visible(tab):
+            # The statistics menu shows the visible tab's name, so refresh
+            # that too when a visible tab is renamed.
+            self._update_visible_virtual_image_statistics()
 
     def resizeEvent(self, event):
         # Store window size for next run

@@ -446,16 +446,13 @@ def _render_virtual_image(
             autoRange=reset,
         )
 
-    stats_text = [
-        f"Min:\t{vimg.min():.5g}",
-        f"Max:\t{vimg.max():.5g}",
-        f"Mean:\t{vimg.mean():.5g}",
-        f"Sum:\t{vimg.sum():.5g}",
-        f"Std:\t{np.std(vimg):.5g}",
-    ]
-
-    for t, m in zip(stats_text, self.realspace_statistics_actions):
-        m.setText(t)
+    # The status-bar statistics for the virtual image are updated via
+    # ``signal_current_virtual_image_changed`` (see
+    # ``_update_visible_virtual_image_statistics`` in main_window.py), which
+    # ``set_virtual_image`` emits when the default tab is visible — so they
+    # track whichever tab is on screen, not just this render. (Direct
+    # re-renders, e.g. a scaling-mode change, don't alter the raw array the
+    # stats describe, so no update is needed here.)
 
 
 def update_diffraction_space_view(self: "DataViewer", reset=False):
