@@ -814,6 +814,21 @@ class DataViewer(QMainWindow):
         )
         self._refresh_tab_bar()
 
+        # Cycle through the tabs with Ctrl+Tab / Ctrl+Shift+Tab (wrapping
+        # around at either end), like cycling tabs in a browser.
+        self.virtual_image_tab_next_shortcut = QShortcut(
+            QtGui.QKeySequence("Ctrl+Tab"), self
+        )
+        self.virtual_image_tab_next_shortcut.activated.connect(
+            partial(self._switch_virtual_image_tab, 1)
+        )
+        self.virtual_image_tab_prev_shortcut = QShortcut(
+            QtGui.QKeySequence("Ctrl+Shift+Tab"), self
+        )
+        self.virtual_image_tab_prev_shortcut.activated.connect(
+            partial(self._switch_virtual_image_tab, -1)
+        )
+
         rightside = QSplitter()
         rightside.addWidget(self.virtual_image_tab_widget)
         rightside.addWidget(self.fft_widget)
@@ -1083,6 +1098,21 @@ class DataViewer(QMainWindow):
         tab_bar = tab_widget.tabBar()
         tab_bar.setVisible(tab_widget.count() > 1)
         tab_bar.setTabButton(0, self._tab_close_button_side(), None)
+
+    def _switch_virtual_image_tab(self, direction: int):
+        """
+        Switch to the next (``direction=1``) or previous (``direction=-1``)
+        virtual-image tab, wrapping around at either end. A no-op while only
+        the default tab exists (the tab bar is hidden in that case), so the
+        shortcut never fires on a pane with a single tab.
+        """
+        tab_widget = self.virtual_image_tab_widget
+        count = tab_widget.count()
+        if count < 2:
+            return
+        tab_widget.setCurrentIndex(
+            (tab_widget.currentIndex() + direction) % count
+        )
 
     def _on_visible_virtual_image_changed(self, _index: int):
         # The visible tab changed (user switch, or a visible tab was closed).
