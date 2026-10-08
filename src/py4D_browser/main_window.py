@@ -829,6 +829,11 @@ class DataViewer(QMainWindow):
             partial(self._switch_virtual_image_tab, -1)
         )
 
+        # Close the window with Ctrl+W (Command+W on a Mac), like any other
+        # macOS window.
+        self.close_shortcut = QShortcut(QtGui.QKeySequence("Ctrl+W"), self)
+        self.close_shortcut.activated.connect(self.close)
+
         rightside = QSplitter()
         rightside.addWidget(self.virtual_image_tab_widget)
         rightside.addWidget(self.fft_widget)
@@ -1257,6 +1262,12 @@ class DataViewer(QMainWindow):
     def keyPressEvent(self, event):
         key = event.key()
         modifier = event.modifiers()
+
+        # The nudge bindings are bare letter keys: ignore them while any
+        # modifier other than Shift is held, so e.g. Cmd+W (close the window)
+        # and Ctrl+C (copy) are not swallowed as a detector nudge.
+        if modifier & ~QtCore.Qt.ShiftModifier:
+            return
 
         speed = 5 if modifier == QtCore.Qt.ShiftModifier else 1
 
