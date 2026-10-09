@@ -136,10 +136,15 @@ def load_file(self: "DataViewer", filepath, mmap=False, binning=1):
                 if binning > 1:
                     Q_size = Q_size * binning if Q_size is not None else None
 
-                self.datacube.calibration.set_R_pixel_size(R_size)
-                self.datacube.calibration.set_R_pixel_units(R_units)
-                self.datacube.calibration.set_Q_pixel_size(Q_size)
-                self.datacube.calibration.set_Q_pixel_units(Q_units)
+                try:
+                    self.datacube.calibration.set_R_pixel_size(R_size)
+                    self.datacube.calibration.set_R_pixel_units(R_units)
+                    self.datacube.calibration.set_Q_pixel_size(Q_size)
+                    self.datacube.calibration.set_Q_pixel_units(Q_units)
+                except Exception as e:
+                    self.statusBar().showMessage(
+                        f"Loading calibrations failed with error: {e}", 5_000
+                    )
 
         else:
             # if no 4D data was found, look for 3D data
@@ -312,11 +317,21 @@ def export_virtual_image(self: "DataViewer", im_format: str, im_type: str):
         vmin, vmax = view.getLevels()
         if im_format == "PNG (display)":
             plt.imsave(
-                fname=filename, arr=vimg, vmin=vmin, vmax=vmax, format="png", cmap="gray"
+                fname=filename,
+                arr=vimg,
+                vmin=vmin,
+                vmax=vmax,
+                format="png",
+                cmap="gray",
             )
         else:
             plt.imsave(
-                fname=filename, arr=vimg, vmin=vmin, vmax=vmax, format="tiff", cmap="gray"
+                fname=filename,
+                arr=vimg,
+                vmin=vmin,
+                vmax=vmax,
+                format="tiff",
+                cmap="gray",
             )
     elif im_format == "TIFF (raw)":
         from tifffile import TiffWriter
