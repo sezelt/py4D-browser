@@ -814,20 +814,56 @@ class DataViewer(QMainWindow):
         )
         self._refresh_tab_bar()
 
-        # Cycle through the tabs with Ctrl+Tab / Ctrl+Shift+Tab (wrapping
-        # around at either end), like cycling tabs in a browser.
+        # Cycle through the tabs with Tab + a modifier (wrapping around at
+        # either end), like cycling tabs in a browser.
+        #
+        # Windows/Linux: the usual Ctrl+Tab / Ctrl+Shift+Tab (bound below).
+        #
+        # macOS: also bind the *Option* (Alt) modifier. On this keyboard the
+        # Control/Command keys deliver the Tab press as a codepoint rather than
+        # Qt.Key_Tab, so a Key_Tab-based QShortcut bound to them does not match;
+        # Option+Tab is the combination the user presses for this and arrives as
+        # a clean Key_Tab.
         self.virtual_image_tab_next_shortcut = QShortcut(
-            QtGui.QKeySequence("Ctrl+Tab"), self
+            QtGui.QKeySequence(QtCore.Qt.ControlModifier + QtCore.Qt.Key_Tab),
+            self,
         )
         self.virtual_image_tab_next_shortcut.activated.connect(
             partial(self._switch_virtual_image_tab, 1)
         )
         self.virtual_image_tab_prev_shortcut = QShortcut(
-            QtGui.QKeySequence("Ctrl+Shift+Tab"), self
+            QtGui.QKeySequence(
+                QtCore.Qt.ControlModifier + QtCore.Qt.ShiftModifier + QtCore.Qt.Key_Tab
+            ),
+            self,
         )
         self.virtual_image_tab_prev_shortcut.activated.connect(
             partial(self._switch_virtual_image_tab, -1)
         )
+
+        if sys.platform.startswith("darwin"):
+            # Option (Alt) + Tab: the modifier the user presses for this on
+            # their keyboard; it arrives as a clean Key_Tab, so the
+            # Key_Tab-based QShortcut matches it (unlike the Control/Command
+            # keys, which deliver the press as a codepoint).
+            self.virtual_image_tab_next_option_shortcut = QShortcut(
+                QtGui.QKeySequence(QtCore.Qt.AltModifier + QtCore.Qt.Key_Tab),
+                self,
+            )
+            self.virtual_image_tab_next_option_shortcut.activated.connect(
+                partial(self._switch_virtual_image_tab, 1)
+            )
+            self.virtual_image_tab_prev_option_shortcut = QShortcut(
+                QtGui.QKeySequence(
+                    QtCore.Qt.AltModifier
+                    + QtCore.Qt.ShiftModifier
+                    + QtCore.Qt.Key_Tab
+                ),
+                self,
+            )
+            self.virtual_image_tab_prev_option_shortcut.activated.connect(
+                partial(self._switch_virtual_image_tab, -1)
+            )
 
         # Close the window with Ctrl+W (Command+W on a Mac), like any other
         # macOS window.

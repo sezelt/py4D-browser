@@ -154,6 +154,11 @@ _KEYBOARD_ROWS = [
 _ALT = "Option" if IS_MAC else "Alt"
 _CTRL = "Command" if IS_MAC else "Ctrl"
 
+# Tab switching uses the physical Control key ("Ctrl") on Windows/Linux, but
+# the Option key on a Mac (where Control/Command + Tab arrive as a codepoint
+# that a Key_Tab shortcut won't match, while Option + Tab arrives cleanly).
+_TAB_MOD = "Option" if IS_MAC else "Ctrl"
+
 # (keys, description) for each modifier-based menu shortcut.
 _MENU_SHORTCUTS = [
     ([_CTRL, "O"], "Load data"),
@@ -161,8 +166,8 @@ _MENU_SHORTCUTS = [
     ([_CTRL, "C"], "Copy virtual image to clipboard"),
     ([_CTRL, _ALT, "C"], "Copy diffraction pattern to clipboard"),
     ([_CTRL, "Shift", "C"], "Copy result to clipboard"),
-    ([_CTRL, "Tab"], "Next virtual-image tab"),
-    ([_CTRL, "Shift", "Tab"], "Previous virtual-image tab"),
+    ([_TAB_MOD, "Tab"], "Next virtual-image tab"),
+    ([_TAB_MOD, "Shift", "Tab"], "Previous virtual-image tab"),
     ([_CTRL, "Shift", "D"], "Debug console"),
     ([_CTRL, "W"], "Close window"),
 ]
