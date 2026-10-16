@@ -30,7 +30,13 @@ import sys
 import platformdirs
 from showinfm import show_in_file_manager
 
-from py4D_browser.utils import VLine, LatchingButton, strtobool, try_get_cmap
+from py4D_browser.utils import (
+    VLine,
+    LatchingButton,
+    strtobool,
+    try_get_cmap,
+    VirtualImageSettings,
+)
 from py4D_browser.version import __version__
 from py4D_browser.scalebar import ScaleBar
 from py4D_browser.virtual_image_tabs import VirtualImageTab
@@ -45,7 +51,10 @@ class DataViewer(QMainWindow):
         app.exec_()
     """
 
-    LOG_SCALE_MIN_VALUE = 1e-6
+    # Canonical value lives in utils.py (used by the shared ``scale_image``
+    # helper); re-exported here as a class attribute so the diffraction-space
+    # renderers can keep referencing ``self.LOG_SCALE_MIN_VALUE``.
+    from py4D_browser.utils import LOG_SCALE_MIN_VALUE
 
     from py4D_browser.menu_actions import (
         load_file,
@@ -991,6 +1000,16 @@ class DataViewer(QMainWindow):
         pane starts with), so a fresh tab matches the browser's default look.
         Each tab still keeps its own colormap from then on (see
         :attr:`VirtualImageTab.colormap`).
+
+        A new tab also starts by inheriting the built-in pane's **current**
+        display settings — its scaling mode, the Autorange latch, and the
+        autoscale percentiles (read once at creation via
+        :meth:`VirtualImageTab._builtin_settings`) — so a fresh tab matches
+        whatever the user is currently looking at. From then on each tab is
+        independent: it keeps its own scaling and range (see
+        :attr:`VirtualImageTab.scaling`, :attr:`VirtualImageTab.autorange`, and
+        :attr:`VirtualImageTab.autorange_percentiles`), and changing one tab
+        never affects the built-in pane or any other tab.
         """
         tab = VirtualImageTab(title, self)
 
@@ -1228,11 +1247,87 @@ class DataViewer(QMainWindow):
         return self.unscaled_realspace_image
 
     @property
+    def current_virtual_image_settings(self):
+        """
+        The display settings of the virtual-image view currently on screen,
+        as a :class:`~py4D_browser.utils.VirtualImageSettings` record: the
+        built-in pane's scaling / Autorange / autoscale percentiles / levels
+        when the default tab is visible, else the visible image tab's.
+
+        Returns ``None`` when the visible view has no 2D display settings —
+        an empty built-in pane or image tab, or a volume tab (which renders a
+        3D volume rather than a scaled image).
+        """
+        # ``virtual_image_tab_widget`` doesn't exist until setup_views();
+        # during early init (menus are set up first) treat it as the default
+        # tab being visible.
+        index = (
+            self.virtual_image_tab_widget.currentIndex()
+            if getattr(self, "virtual_image_tab_widget", None) is not None
+            else 0
+        )
+        if index <= 0:
+            if self.unscaled_realspace_image is None:
+                return None
+            return VirtualImageSettings(
+                scaling=self.vimg_scaling_group.checkedAction().text().replace(
+                    "&", ""
+                ),
+                autorange=self.realspace_rescale_button.latched,
+                percentiles=tuple(self.real_space_autoscale_percentiles),
+                levels=tuple(
+                    self.real_space_widget.getHistogramWidget().getLevels()
+                ),
+            )
+        tabs = self.virtual_image_tabs
+        if index - 1 >= len(tabs):
+            return None
+        tab = tabs[index - 1]
+        # Volume tabs have no image_view and no 2D display settings.
+        if getattr(tab, "image_view", None) is None or tab.image is None:
+            return None
+        return VirtualImageSettings(
+            scaling=tab.scaling,
+            autorange=tab.autorange,
+            percentiles=tuple(tab.autorange_percentiles),
+            levels=tab.levels,
+        )
+
+    @property
+    def current_diffraction_image_settings(self):
+        """
+        The display settings of the built-in diffraction (reciprocal-space)
+        pane, as a :class:`~py4D_browser.utils.VirtualImageSettings` record:
+        its scaling / Autorange / autoscale percentiles / levels.
+
+        Returns ``None`` when the pane is empty (no diffraction image loaded).
+        Use this to read the DP pane's current scaling and range (e.g. to
+        mirror them onto a new tab copied from the DP).
+        """
+        if self.unscaled_diffraction_image is None:
+            return None
+        return VirtualImageSettings(
+            scaling=self.diff_scaling_group.checkedAction().text().replace(
+                "&", ""
+            ),
+            autorange=self.diffraction_rescale_button.latched,
+            percentiles=tuple(self.diffraction_autoscale_percentiles),
+            levels=tuple(
+                self.diffraction_space_widget.getHistogramWidget().getLevels()
+            ),
+        )
+
+    @property
     def _visible_real_space_widget(self):
         """
         The ``pg.ImageView`` currently shown in the virtual-image pane: the
         built-in real-space widget when the default tab is visible, else the
-        visible plugin tab's widget.
+        visible plugin tab's render view.
+
+        Image tabs expose their render view as ``image_view`` (their ``widget``
+        is now the page container holding the view + the bottom control bar);
+        volume tabs have no ``image_view`` and fall back to their container
+        ``widget``, which the ImageView consumers reject as they did before.
         """
         index = (
             self.virtual_image_tab_widget.currentIndex()
@@ -1243,7 +1338,7 @@ class DataViewer(QMainWindow):
             return self.real_space_widget
         tabs = self.virtual_image_tabs
         if index - 1 < len(tabs):
-            return tabs[index - 1].widget
+            return getattr(tabs[index - 1], "image_view", tabs[index - 1].widget)
         return self.real_space_widget
 
     def is_virtual_image_tab_visible(self, tab) -> bool:

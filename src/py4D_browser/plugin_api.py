@@ -175,6 +175,38 @@ class PluginAPI1:
         return self._viewer.current_virtual_image
 
     @property
+    def current_virtual_image_settings(self):
+        """
+        The display settings of the virtual-image view currently on screen,
+        as a :class:`~py4D_browser.utils.VirtualImageSettings` record: the
+        built-in pane's scaling / Autorange / autoscale percentiles / levels
+        when the default tab is visible, else the visible image tab's.
+
+        Returns ``None`` when the visible view has no 2D display settings —
+        an empty built-in pane or image tab, or a volume tab. Use this to read
+        a view's current scaling and range (e.g. to mirror them onto a new
+        tab); each tab's own ``scaling`` / ``autorange`` /
+        ``autorange_percentiles`` / ``levels`` / ``set_levels`` control its
+        display independently.
+        """
+        return self._viewer.current_virtual_image_settings
+
+    @property
+    def current_diffraction_image_settings(self):
+        """
+        The display settings of the built-in diffraction (reciprocal-space)
+        pane, as a :class:`~py4D_browser.utils.VirtualImageSettings` record:
+        the pane's scaling / Autorange / autoscale percentiles / levels.
+
+        Returns ``None`` when the pane is empty (no diffraction image loaded).
+        Use this to read the DP pane's current scaling and range (e.g. to
+        mirror them onto a new tab); each tab's own ``scaling`` / ``autorange``
+        / ``autorange_percentiles`` / ``levels`` / ``set_levels`` control its
+        display independently.
+        """
+        return self._viewer.current_diffraction_image_settings
+
+    @property
     def current_diffraction_image(self):
         """
         The raw array currently on display in the diffraction pane

@@ -56,6 +56,17 @@ class CopyToTabPlugin(QWidget):
             return
         title = self._next_title("VI Copy")
         tab = api.create_virtual_image_tab(title)
+
+        # Mirror the visible view's scaling + range (not its colormap) so the
+        # copy looks like its source. Set before set_image so the tab's first
+        # render uses the mirrored scaling and percentiles; the final set_levels
+        # (below) then pins it to the source's exact on-screen range.
+        settings = api.current_virtual_image_settings
+        if settings is not None:
+            tab.scaling = settings.scaling
+            tab.autorange_percentiles = settings.percentiles
+            tab.autorange = settings.autorange
+
         set_scalebar = {}
         if api.datacube is not None:
             set_scalebar = dict(
@@ -63,6 +74,8 @@ class CopyToTabPlugin(QWidget):
                 pixel_units=api.datacube.calibration.get_R_pixel_units(),
             )
         tab.set_image(image, reset=True, **set_scalebar)
+        if settings is not None and settings.levels is not None:
+            tab.set_levels(*settings.levels)
         api.status_bar.showMessage(
             f"Copied the current virtual image to the '{title}' tab.", 5_000
         )
@@ -77,6 +90,17 @@ class CopyToTabPlugin(QWidget):
             return
         title = self._next_title("DP Copy")
         tab = api.create_virtual_image_tab(title)
+
+        # Mirror the diffraction pane's scaling + range (not its colormap) so
+        # the copy looks like its source. Set before set_image so the tab's
+        # first render uses the mirrored scaling and percentiles; the final
+        # set_levels (below) then pins it to the source's exact on-screen range.
+        settings = api.current_diffraction_image_settings
+        if settings is not None:
+            tab.scaling = settings.scaling
+            tab.autorange_percentiles = settings.percentiles
+            tab.autorange = settings.autorange
+
         set_scalebar = {}
         if api.datacube is not None:
             set_scalebar = dict(
@@ -84,6 +108,8 @@ class CopyToTabPlugin(QWidget):
                 pixel_units=api.datacube.calibration.get_Q_pixel_units(),
             )
         tab.set_image(image, reset=True, **set_scalebar)
+        if settings is not None and settings.levels is not None:
+            tab.set_levels(*settings.levels)
         api.status_bar.showMessage(
             f"Copied the current diffraction pattern to the '{title}' tab.",
             5_000,

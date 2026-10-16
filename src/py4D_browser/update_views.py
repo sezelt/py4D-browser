@@ -15,6 +15,7 @@ from py4D_browser.utils import (
     pg_point_roi,
     make_detector,
     complex_to_Lab,
+    scale_image,
     StatusBarWriter,
     DetectorShape,
     DetectorMode,
@@ -412,14 +413,9 @@ def _render_virtual_image(
         scaling_mode = self.vimg_scaling_group.checkedAction().text().replace("&", "")
         assert scaling_mode in ["Linear", "Log", "Square Root"], scaling_mode
 
-        if scaling_mode == "Linear":
-            new_view = vimg.copy()
-        elif scaling_mode == "Log":
-            new_view = np.log2(np.maximum(vimg, self.LOG_SCALE_MIN_VALUE))
-        elif scaling_mode == "Square Root":
-            new_view = np.sqrt(np.maximum(vimg, 0))
-        else:
-            raise ValueError("Mode not recognized")
+        # Shared with the per-tab controls (see ``scale_image`` in utils.py) so
+        # the built-in pane and a plugin tab can never drift apart.
+        new_view = scale_image(vimg, scaling_mode)
 
         if auto_level is None:
             auto_level = reset or self.realspace_rescale_button.latched
