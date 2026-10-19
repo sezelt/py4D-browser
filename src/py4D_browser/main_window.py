@@ -16,10 +16,13 @@ from PyQt5.QtWidgets import (
     QToolTip,
     QPushButton,
     QShortcut,
+    QVBoxLayout,
+    QStackedLayout,
 )
 
 from py4DSTEM import DataCube
 import pyqtgraph as pg
+from pyqtgraph import opengl as gl
 import numpy as np
 
 from functools import partial
@@ -77,7 +80,6 @@ class DataViewer(QMainWindow):
     from py4D_browser.update_views import (
         set_virtual_image,
         set_diffraction_image,
-        set_result_image,
         set_scalebar,
         add_diffraction_roi,
         remove_diffraction_roi,
@@ -87,21 +89,34 @@ class DataViewer(QMainWindow):
         get_virtual_image_detector,
         _render_virtual_image,
         _render_diffraction_image,
-        _render_result_image,
         update_diffraction_space_view,
         update_real_space_view,
-        update_fft_view,
         update_realspace_detector,
         update_diffraction_detector,
         set_diffraction_autoscale_range,
         set_real_space_autoscale_range,
-        set_result_autoscale_range,
         nudge_real_space_selector,
         nudge_diffraction_selector,
         update_annulus_pos,
         update_annulus_radii,
         update_tooltip,
         update_scalebars,
+    )
+
+    from py4D_browser.result_pane import (
+        set_result_image,
+        _render_result_image,
+        _render_result_volume,
+        _update_result_volume_display,
+        _result_volume_z_stretch,
+        _apply_result_volume_geometry,
+        _on_volume_voxel_size_changed,
+        _visible_volume_tab,
+        _enable_view_lock,
+        _disable_view_lock,
+        update_fft_view,
+        set_result_autoscale_range,
+        ViewDirectionSync,
     )
 
     from py4D_browser.signals import (
@@ -177,6 +192,14 @@ class DataViewer(QMainWindow):
         self.unscaled_diffraction_image: Optional[np.ndarray] = None
         self.unscaled_realspace_image: Optional[np.ndarray] = None
         self.unscaled_fft_image: Optional[np.ndarray] = None
+
+        # Result-pane 3D FFT state (see _render_result_volume in update_views.py).
+        # Kept separate from the 2D path (unscaled_fft_image / fft_widget);
+        # None until a 3D FFT renders for the first time.
+        self._result_volume_item = None    # the GLVolumeItem
+        self._result_volume_fft = None    # last (unscaled) 3D FFT, for re-render
+        self._result_volume_px = 1.0      # its reciprocal-space voxel size
+        self._result_volume_shape = None  # rendered shape (for the z-stretch transform)
 
         # Plugin-created virtual-image tabs (image or volume; see
         # virtual_image_tabs.py / volume_tabs.py). The built-in virtual
@@ -795,6 +818,38 @@ class DataViewer(QMainWindow):
         self.fft_widget.dragEnterEvent = self.dragEnterEvent
         self.fft_widget.dropEvent = self.dropEvent
 
+        # 3D result view: renders a volume tab's 3D FFT as a genuine 3D volume
+        # (see _render_result_volume). Stacked with the 2D fft_widget (page 1),
+        # so the existing 2D→RGB path is untouched. Styled like the volume tabs.
+        self.result_volume_view = gl.GLViewWidget()
+        self.result_volume_view.addItem(gl.GLAxisItem())
+        self.result_volume_view.setBackgroundColor("k")
+
+        # Title strip above the 3D view (a QLabel can't overlay a QOpenGLWidget).
+        result_volume_page = QWidget()
+        result_volume_layout = QVBoxLayout(result_volume_page)
+        result_volume_layout.setContentsMargins(0, 0, 0, 0)
+        result_volume_layout.setSpacing(0)
+        self._result_title_label = QLabel("Virtual Image FFT")
+        self._result_title_label.setStyleSheet(
+            "color: rgb(200, 200, 200); background-color: rgb(0, 0, 0);"
+        )
+        self._result_title_label.setAlignment(
+            QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter
+        )
+        self._result_title_label.setFixedHeight(20)
+        result_volume_layout.addWidget(self._result_title_label)
+        result_volume_layout.addWidget(self.result_volume_view, 1)
+
+        self.result_pane = QWidget()
+        self._result_stack = QStackedLayout(self.result_pane)
+        self._result_stack.addWidget(self.fft_widget)  # page 0: 2D result
+        self._result_stack.addWidget(result_volume_page)  # page 1: 3D volume FFT
+
+        # Bidirectional view-direction lock: result 3D view <-> visible volume
+        # tab (see ViewDirectionSync). Active only while the 3D page shows.
+        self._view_sync = self.ViewDirectionSync(self.result_volume_view)
+
         layout = QHBoxLayout()
         layout.addWidget(self.diffraction_space_widget, 1)
 
@@ -881,11 +936,13 @@ class DataViewer(QMainWindow):
 
         rightside = QSplitter()
         rightside.addWidget(self.virtual_image_tab_widget)
-        rightside.addWidget(self.fft_widget)
+        # The result pane (2D + 3D views), not the bare fft_widget, so a 3D
+        # FFT can swap to the 3D page.
+        rightside.addWidget(self.result_pane)
         rightside.setOrientation(QtCore.Qt.Vertical)
         # set a sensible ratio for the sizes
         full_height = (
-            self.real_space_widget.size().height() + self.fft_widget.size().height()
+            self.real_space_widget.size().height() + self.result_pane.size().height()
         )
         rightside.setSizes([int(full_height * 2 / 3), int(full_height / 3)])
 

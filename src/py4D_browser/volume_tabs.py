@@ -490,6 +490,12 @@ class VolumeTab(QtCore.QObject):
         self._voxel_size = (z, self._voxel_size[1], self._voxel_size[2])
         self._z_readout.setText(f"{z:.4g}")
         self._apply_voxel_geometry()
+        # Keep the result 3D FFT (if shown — "Virtual Image FFT" with this
+        # volume displayed) in lockstep with this z-stretch. A no-op unless the
+        # 3D result is on screen and this is the visible volume tab (see
+        # _on_volume_voxel_size_changed).
+        if self._viewer is not None:
+            self._viewer._on_volume_voxel_size_changed(self)
 
     def _sync_z_slider(self):
         """

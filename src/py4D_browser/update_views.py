@@ -27,6 +27,7 @@ from py4D_browser.utils import (
     strtobool,
 )
 
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -554,113 +555,6 @@ def _render_diffraction_image(
     )
 
 
-def update_fft_view(self: "DataViewer", mode: Optional[str] = None):
-    # called via signals when the Result menu has an internal option chosen
-    # TODO: architect this as a plugin as well!
-
-    # This gets called when *any* internal option is picked and
-    # the mode is read from which menu item is selected
-
-    mode = mode or self.result_source_action_group.checkedAction().text()
-
-    # Read the *currently visible* virtual image (built-in default tab or a
-    # plugin tab) rather than always the built-in image, so the result pane
-    # follows whatever is on display in the virtual-image pane.
-    vimg = self.current_virtual_image
-    DP = self.unscaled_diffraction_image
-
-    if vimg is None or DP is None or self.datacube is None:
-        # Without a loaded dataset there is no calibration to derive the
-        # result view's scale from; skip rather than crash.
-        return
-
-    # A 3D volume tab is not a 2D virtual image; the FFT result modes can't
-    # act on it, so skip silently (this is called on every image update, so
-    # a status message would be noisy). EWPC doesn't use the virtual image
-    # and still updates.
-    if vimg.ndim != 2 and mode in ("Virtual Image FFT", "Virtual Image FFT (complex)"):
-        return
-
-    if mode == "Virtual Image FFT":
-        vimg_2D = vimg if np.isrealobj(vimg) else np.abs(vimg)
-        fft_window = (
-            np.hanning(vimg_2D.shape[0])[:, None]
-            * np.hanning(vimg_2D.shape[1])[None, :]
-        )
-
-        fft = np.abs(np.fft.fftshift(np.fft.fft2(vimg_2D * fft_window))) ** 0.5
-        mode_switch = self.fft_widget_text.textItem.toPlainText() != "Virtual Image FFT"
-        self.set_result_image(
-            fft,
-            reset=mode_switch,
-            title="Virtual Image FFT",
-            pixel_size=(
-                1.0 / self.datacube.calibration.get_R_pixel_size() / self.datacube.R_Ny
-            ),
-            pixel_units=format_unit(
-                f"{self.datacube.calibration.get_R_pixel_units()}⁻¹"
-            ),
-        )
-        self.fft_widget.getImageItem().setRect(0, 0, fft.shape[1], fft.shape[1])
-        if mode_switch:
-            # Need to autorange after setRect
-            self.fft_widget.autoRange()
-    elif mode == "Virtual Image FFT (complex)":
-        vimg_2D = vimg if np.isrealobj(vimg) else np.abs(vimg)
-        fft_window = (
-            np.hanning(vimg_2D.shape[0])[:, None]
-            * np.hanning(vimg_2D.shape[1])[None, :]
-        )
-
-        fft = np.fft.fftshift(np.fft.fft2(np.fft.fftshift(vimg_2D * fft_window)))
-        mode_switch = self.fft_widget_text.textItem.toPlainText() != "Virtual Image FFT"
-        self.set_result_image(
-            fft,
-            reset=mode_switch,
-            title="Virtual Image FFT",
-            pixel_size=(
-                1.0 / self.datacube.calibration.get_R_pixel_size() / self.datacube.R_Ny
-            ),
-            pixel_units=format_unit(
-                f"{self.datacube.calibration.get_R_pixel_units()}⁻¹"
-            ),
-        )
-        self.fft_widget.getImageItem().setRect(0, 0, fft.shape[1], fft.shape[1])
-        if mode_switch:
-            # Need to autorange after setRect
-            self.fft_widget.autoRange()
-
-    elif mode == "EWPC":
-        log_clip = np.maximum(1e-10, np.percentile(np.maximum(DP, 0.0), 0.1))
-        fft = np.abs(np.fft.fftshift(np.fft.fft2(np.log(np.maximum(DP, log_clip)))))
-        mode_switch = self.fft_widget_text.textItem.toPlainText() != "EWPC"
-        self.set_result_image(
-            fft,
-            reset=mode_switch,
-            title="EWPC",
-            pixel_size=(
-                1.0 / self.datacube.calibration.get_Q_pixel_size() / self.datacube.Q_Ny
-            ),
-            pixel_units=format_unit(
-                f"{self.datacube.calibration.get_Q_pixel_units()}⁻¹"
-            ),
-        )
-    else:
-        raise RuntimeError(
-            f"The internal FFT view callback was triggered but {mode} is checked!"
-        )
-
-
-def set_result_image(
-    self: "DataViewer", vimg, reset=False, pixel_size=1.0, pixel_units="", title=""
-):
-    self.unscaled_fft_image = vimg
-    self.fft_widget_text.setText(title)
-    self._render_result_image(reset=reset)
-
-    self.set_scalebar("result", pixel_size, pixel_units)
-
-
 def set_scalebar(self: "DataViewer", view, pixel_size=None, units=None):
     """
     Set the scale bar of one of the image views to an explicit pixel size
@@ -739,63 +633,6 @@ def remove_real_space_roi(self: "DataViewer", item):
     """
     self.real_space_widget.getView().removeItem(item)
     return item
-
-
-def _render_result_image(
-    self: "DataViewer", reset=False, auto_level: Optional[bool] = None
-):
-    vimg = self.unscaled_fft_image
-
-    if vimg is None:
-        # no image loaded yet (e.g. an autoscale request fired before the
-        # first datacube was shown); nothing to render
-        return
-
-    # for 2D images, use the scaling set by the user
-    # for RGB (3D) images, always scale linear
-    if np.isrealobj(vimg):
-        scaling_mode = self.result_scaling_group.checkedAction().text().replace("&", "")
-        assert scaling_mode in ["Linear", "Log", "Square Root"], scaling_mode
-
-        if scaling_mode == "Linear":
-            new_view = vimg.copy()
-        elif scaling_mode == "Log":
-            new_view = np.log2(np.maximum(vimg, self.LOG_SCALE_MIN_VALUE))
-        elif scaling_mode == "Square Root":
-            new_view = np.sqrt(np.maximum(vimg, 0))
-        else:
-            raise ValueError("Mode not recognized")
-
-        if auto_level is None:
-            auto_level = reset or self.result_rescale_button.latched
-
-        self.fft_widget.setImage(
-            new_view.T,
-            autoLevels=False,
-            levels=(
-                (
-                    np.percentile(new_view, self.result_autoscale_percentiles[0]),
-                    np.percentile(new_view, self.result_autoscale_percentiles[1]),
-                )
-                if auto_level
-                else None
-            ),
-            autoRange=reset,
-        )
-    else:
-        new_view = complex_to_Lab(
-            vimg,
-            amin=np.percentile(np.abs(vimg), self.result_autoscale_percentiles[0]),
-            amax=np.percentile(np.abs(vimg), self.result_autoscale_percentiles[1]),
-            ab_scale=128,
-            gamma=0.5,
-        )
-        self.fft_widget.setImage(
-            np.transpose(new_view, (1, 0, 2)),  # flip x/y but keep RGB ordering
-            autoLevels=False,
-            levels=(0, 1),
-            autoRange=reset,
-        )
 
 
 def update_realspace_detector(self: "DataViewer"):
@@ -1009,16 +846,6 @@ def set_real_space_autoscale_range(self: "DataViewer", percentiles, redraw=True)
         # apply the newly-set range immediately (even if the rescale button
         # is not latched)
         self._render_virtual_image(reset=False, auto_level=True)
-
-
-def set_result_autoscale_range(self: "DataViewer", percentiles, redraw=True):
-    self.result_autoscale_percentiles = percentiles
-    self.settings.setValue("last_state/result_autorange", list(percentiles))
-
-    if redraw:
-        # apply the newly-set range immediately (even if the rescale button
-        # is not latched)
-        self._render_result_image(reset=False, auto_level=True)
 
 
 def nudge_real_space_selector(self: "DataViewer", dx, dy):
