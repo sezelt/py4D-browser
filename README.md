@@ -14,6 +14,8 @@ The GUI is available on PyPI and conda-forge:
 ## Usage
 Run `py4DGUI` in your terminal to open the GUI. Then just drag and drop a 4D-STEM dataset into the window!
 
+![Demonstration](/images/demo.gif)
+
 ### Controls
 * Move the virtual detector and the real-space selector using the mouse or using the keyboard shortcuts: WASD moves the detector and IJKL moves the selector, and holding down shift moves 5 pixels at a time.
 * Auto scaling of both views is on by default. Press the "Autoscale" buttons in the bottom right to disable. Press either button to apply automatic scaling once, or Shift + click to lock autoscaling back on.
@@ -22,15 +24,26 @@ Run `py4DGUI` in your terminal to open the GUI. Then just drag and drop a 4D-STE
 * The FFT pane can be switched between displaying the FFT of the virtual image and displaying the [exit wave power cepstrum](https://doi.org/10.1016/j.ultramic.2020.112994).
 * Virtual images can be exported either as the scaled and clipped displays shown in the GUI or as raw data. The exact datatype stored in the raw TIFF image depends on both the datatype of the dataset and the type of virtual image being displayed (in particular, integer datatypes are converted internally to floating point to prevent overflows when generating any synthesized virtual images).
 
-![Demonstration](/images/demo.gif)
+## New in Version 1.6
 
-The keyboard map in the Help menu was made using [this tool](https://archie-adams.github.io/keyboard-shortcut-map-maker/) and the map file is in the top level of this repo.
+* **Virtual image tabs** — the virtual-image pane now holds multiple tabs. Switch between them with Ctrl+Tab / Ctrl+Shift+Tab.
+* **3D volumes** — a tab can display a 3D volume in an interactive view (orbit, pan, zoom) with color and alpha transfer functions and a voxel-size slider. With a volume tab visible, the result pane can render its 3D FFT, kept in sync with the volume.
+* **Copy to clipboard** — Ctrl+C copies the virtual image, Ctrl+Alt+C the diffraction pattern, and Ctrl+Shift+C the result pane.
+* **Debug console** — Ctrl+Shift+D opens a Python console, with full access to the DataViewer object.
+* The keyboard map in the Help menu is now rendered in-app (Help → Show Keyboard Map).
 
-## Plugins
+## Plugin interface
 
-As of version 1.3.0, we now support a simple means for loading plugins that extend the functionality of the browser. Details on creating a plugin can be found in [this document](PLUGINS.md).
+As of version 1.3.0, the browser supports plugins that extend its functionality. The current **v1.6** plugin API lets a plugin add virtual-image tabs and 3D volume tabs, set scale bars, respond to data and result updates, and place ROIs on the built-in views. A few plugins ship with the browser and make good examples:
 
-The [EMPAD-G2 Raw Reader](https://github.com/sezelt/empad2), which was previously implemented in the browser code itself, is now implemented as a plugin, which can serve as an example.
+* **Calibration** — calibrates the scale bars using known physical distances.
+* **Copy Image to Tab** — copies the currently-displayed virtual image or diffraction pattern into a new tab.
+* **Volume Viewer** - open a TIFF image stack in a volume tab. 
+
+> [!NOTE]
+> The original plugin interface (v1.3-1.5) was experimental, and gave direct access to the entire DataViewer object. As of v1.6 there is now a (fingers-crossed) stable plugin API. Plugins built for v1.3 will not work under v1.6 unless modified. The plugin API object acts as an interposer between the DataViewer and the plugin; plugins now declare the API version they were built against and will always be passed a compatible API layer. See [PLUGINS.md](PLUGINS.md) for details. 
+
+<!-- Github markdown special doodads: https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#alerts -->
 
 ## About
 
