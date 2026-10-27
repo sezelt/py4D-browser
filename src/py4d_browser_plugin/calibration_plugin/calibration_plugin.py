@@ -300,13 +300,13 @@ class CalibrateDialog(QDialog):
         vimg = self.api.current_virtual_image
         if vimg is None:
             self.api.status_bar.showMessage(
-                "Calibrate from a Period: no virtual image is on display.",
+                "From FFT: no virtual image is on display.",
                 5_000,
             )
             return
         if vimg.ndim != 2:
             self.api.status_bar.showMessage(
-                "Calibrate from a Period requires a 2D virtual image.",
+                "From FFT requires a 2D virtual image.",
                 5_000,
             )
             return
@@ -521,7 +521,7 @@ class CalibrateFromPeriodDialog(QDialog):
             period = float(self.period_box.text())
         except ValueError:
             self.api.status_bar.showMessage(
-                "Calibrate from a Period: enter a real-space period first.",
+                "From FFT: enter a real-space period first.",
                 5_000,
             )
             return
