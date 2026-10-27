@@ -87,11 +87,14 @@ class CalibrateDialog(QDialog):
 
         realspace_box = QGroupBox("Real Space")
         layout.addWidget(realspace_box)
-        realspace_layout = QHBoxLayout()
+        realspace_layout = QVBoxLayout()
         realspace_box.setLayout(realspace_layout)
 
+        realspace_top_layout = QHBoxLayout()
+        realspace_layout.addLayout(realspace_top_layout)
+
         realspace_left_layout = QGridLayout()
-        realspace_layout.addLayout(realspace_left_layout)
+        realspace_top_layout.addLayout(realspace_left_layout)
 
         realspace_left_layout.addWidget(QLabel("Pixel Size"), 0, 0, Qt.AlignRight)
         self.realspace_pix_box = QLineEdit()
@@ -103,11 +106,16 @@ class CalibrateDialog(QDialog):
         realspace_left_layout.addWidget(self.realspace_fov_box, 1, 1)
 
         realspace_right_layout = QHBoxLayout()
-        realspace_layout.addLayout(realspace_right_layout)
+        realspace_top_layout.addLayout(realspace_right_layout)
         self.realspace_unit_box = QComboBox()
         self.realspace_unit_box.addItems(["Å", "nm"])
         self.realspace_unit_box.setMinimumContentsLength(5)
         realspace_right_layout.addWidget(self.realspace_unit_box)
+
+        # Calibrate the R pixel size from a periodicity in the virtual image's FFT.
+        period_button = QPushButton("From FFT...")
+        period_button.pressed.connect(self.launch_period_dialog)
+        realspace_layout.addWidget(period_button)
 
         diff_box = QGroupBox("Diffraction")
         layout.addWidget(diff_box)
@@ -188,27 +196,32 @@ class CalibrateDialog(QDialog):
         ######### POPULATE ########
 
         # Real Space
-        r_pix = self.datacube.calibration.get_R_pixel_size()
         r_unit = self.datacube.calibration.get_R_pixel_units()
-
-        self.realspace_pix_box.setText(f"{r_pix:g}")
-        self.realspace_fov_box.setText(f"{r_pix * self.datacube.R_Ny:g}")
-
         r_unit_map = {"A": "Å", "nm": "nm"}
+
+        # A unit not in the map (e.g. "pixels") means this field was never
+        # calibrated in physical units; leave the boxes empty so set_and_close
+        # (which skips empty fields) can't apply a spurious calibration.
+        if r_unit in r_unit_map:
+            r_pix = self.datacube.calibration.get_R_pixel_size()
+            self.realspace_pix_box.setText(f"{r_pix:g}")
+            self.realspace_fov_box.setText(f"{r_pix * self.datacube.R_Ny:g}")
         self.realspace_unit_box.setCurrentText(r_unit_map.get(r_unit, "Å"))
 
         # Diffraction
-        q_pix = self.datacube.calibration.get_Q_pixel_size()
         q_unit = self.datacube.calibration.get_Q_pixel_units()
-
-        self.diff_pix_box.setText(f"{q_pix:g}")
-        self.diff_fov_box.setText(f"{q_pix * self.datacube.Q_Ny:g}")
-        if self.diffraction_selector_size:
-            self.diff_selection_box.setText(
-                f"{q_pix * self.diffraction_selector_size:g}"
-            )
-
         q_unit_map = {"mrad": "mrad", "A^-1": "Å⁻¹", "1/nm": "nm⁻¹"}
+
+        # Same rule as above: don't pre-fill a field that has no physical-unit
+        # calibration yet.
+        if q_unit in q_unit_map:
+            q_pix = self.datacube.calibration.get_Q_pixel_size()
+            self.diff_pix_box.setText(f"{q_pix:g}")
+            self.diff_fov_box.setText(f"{q_pix * self.datacube.Q_Ny:g}")
+            if self.diffraction_selector_size:
+                self.diff_selection_box.setText(
+                    f"{q_pix * self.diffraction_selector_size:g}"
+                )
         self.diff_unit_box.setCurrentText(q_unit_map.get(q_unit, "mrad"))
 
         # Voltage
@@ -281,6 +294,25 @@ class CalibrateDialog(QDialog):
     def rotation_input_changed(self, new_text):
         pass  # no dependent fields to update
 
+    def launch_period_dialog(self):
+        # Calibrate the R pixel size from a periodicity in the virtual image's
+        # FFT; requires a 2D virtual image.
+        vimg = self.api.current_virtual_image
+        if vimg is None:
+            self.api.status_bar.showMessage(
+                "Calibrate from a Period: no virtual image is on display.",
+                5_000,
+            )
+            return
+        if vimg.ndim != 2:
+            self.api.status_bar.showMessage(
+                "Calibrate from a Period requires a 2D virtual image.",
+                5_000,
+            )
+            return
+        dialog = CalibrateFromPeriodDialog(self.api, self)
+        dialog.open()
+
     def set_and_close(self):
 
         print("Old calibration")
@@ -336,5 +368,183 @@ class CalibrateDialog(QDialog):
 
         print("New calibration")
         print(self.datacube.calibration)
+
+        self.close()
+
+
+class CalibrateFromPeriodDialog(QDialog):
+    """
+    Calibrate the real-space pixel size from a periodicity in the virtual
+    image.
+
+    The FFT of the virtual image is shown with zero frequency at the center
+    and a fixed-center circular ROI. The user sizes the ROI onto a known
+    spatial-frequency peak, enters the corresponding real-space period, and
+    the implied pixel size is computed and applied to the calibration.
+
+    The FFT is rendered like the result pane — transposed and forced to a
+    square rect — so the frequency axis is isotropic in the view and a
+    circular ROI is a single spatial frequency at any angle. That is what
+    lets a non-square scan (R_Nx != R_Ny) be calibrated with one radius.
+    """
+
+    def __init__(self, api, parent_dialog):
+        # parent_dialog is the CalibrateDialog we launched from; we use it to
+        # reflect the new calibration back into its fields.
+        super().__init__(parent=api.qt_window)
+
+        self.api = api
+        self.datacube = api.datacube
+        self.parent_dialog = parent_dialog
+
+        vimg = api.current_virtual_image
+        vimg = vimg if np.isrealobj(vimg) else np.abs(vimg)
+        self.N1 = vimg.shape[1]  # side of the square display; see class doc.
+
+        layout = QVBoxLayout(self)
+
+        ######### FFT VIEW + ROI #########
+
+        self.image_widget = pg.ImageView()
+        self.image_widget.getView().setMenuEnabled(False)
+        layout.addWidget(self.image_widget)
+
+        # Magnitude FFT, sqrt-scaled and 0.1-99.9% clipped, mirroring the
+        # result pane's 2D-FFT computation.
+        fx = np.hanning(vimg.shape[0])
+        fy = np.hanning(vimg.shape[1])
+        window = fx[:, None] * fy[None, :]
+        fft = np.abs(np.fft.fftshift(np.fft.fft2(vimg * window))) ** 0.5
+        lo = float(np.percentile(fft, 0.1))
+        hi = float(np.percentile(fft, 99.9))
+        self.image_widget.setImage(
+            fft.T,
+            autoLevels=False,
+            levels=(lo, hi),
+            autoRange=True,
+        )
+        # Force a square view: this is what makes the frequency axis
+        # isotropic, so a circular ROI is a constant-period ring.
+        self.image_widget.getImageItem().setRect(0, 0, self.N1, self.N1)
+
+        # Fixed-center circular ROI on the zero frequency (the view center).
+        main_pen = {"color": "g", "width": 6}
+        handle_pen = {"color": "r", "width": 9}
+        hover_pen = {"color": "c", "width": 6}
+        hover_handle = {"color": "c", "width": 9}
+        # Zero-frequency pixel index N1/2 has its center at N1/2 + 0.5; add the
+        # half-pixel so the ROI sits on the peak, not the corner between pixels.
+        center = self.N1 / 2.0 + 0.5
+        default_r = max(1.0, min(vimg.shape) / 10.0)
+        self.roi = pg.CircleROI(
+            [center - default_r, center - default_r],
+            [2 * default_r, 2 * default_r],
+            movable=False,
+            pen=main_pen,
+            handlePen=handle_pen,
+            hoverPen=hover_pen,
+            handleHoverPen=hover_handle,
+        )
+        self.image_widget.getView().addItem(self.roi)
+
+        ######### CONTROLS #########
+
+        controls = QGridLayout()
+        layout.addLayout(controls)
+
+        controls.addWidget(QLabel("Real-space Period"), 0, 0, Qt.AlignRight)
+        self.period_box = QLineEdit()
+        self.period_box.setValidator(QDoubleValidator())
+        controls.addWidget(self.period_box, 0, 1)
+
+        self.unit_box = QComboBox()
+        self.unit_box.addItems(["Å", "nm"])
+        self.unit_box.setMinimumContentsLength(5)
+        # Default to the unit already chosen in the parent dialog.
+        self.unit_box.setCurrentText(self.parent_dialog.realspace_unit_box.currentText())
+        controls.addWidget(self.unit_box, 0, 2)
+
+        self.pixel_size_label = QLabel("")
+        controls.addWidget(self.pixel_size_label, 1, 0, 1, 3)
+
+        ######### CALLBACKS #########
+
+        self.roi.sigRegionChanged.connect(self.update_readout)
+        self.period_box.textEdited.connect(self.update_readout)
+        self.unit_box.currentTextChanged.connect(self.update_readout)
+        self.update_readout()
+
+        ######### BUTTONS #########
+
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        close_button = QPushButton("Close")
+        close_button.pressed.connect(self.close)
+        button_layout.addWidget(close_button)
+        calibrate_button = QPushButton("Calibrate")
+        calibrate_button.pressed.connect(self.calibrate_and_close)
+        button_layout.addWidget(calibrate_button)
+        layout.addLayout(button_layout)
+
+        # Size the FFT to roughly half the main window wide. ``api.qt_window``
+        # is only a zero-size parent and a QDialog is itself top-level, so find
+        # the real window by walking the parent chain; fall back to a fixed
+        # size if it has no width yet.
+        top = self
+        while top.parent() is not None:
+            top = top.parent()
+        main_width = top.width() if top is not None else 0
+        w = int(main_width / 2) if main_width > 0 else 900
+        self.resize(w, w + 140)
+
+    def roi_radius(self):
+        # The ROI radius in view units (the isotropic frequency space).
+        return self.roi.size()[0] / 2.0
+
+    def update_readout(self, *args):
+        r_view = self.roi_radius()
+        try:
+            period = float(self.period_box.text())
+        except ValueError:
+            self.pixel_size_label.setText(
+                f"ROI radius: {r_view:.4g} px  (set the period to compute the pixel size)"
+            )
+            return
+        unit = self.unit_box.currentText()
+        pixel_size = r_view * period / self.N1
+        self.pixel_size_label.setText(
+            f"Pixel size: {pixel_size:.6g} {unit}"
+        )
+
+    def calibrate_and_close(self):
+        try:
+            period = float(self.period_box.text())
+        except ValueError:
+            self.api.status_bar.showMessage(
+                "Calibrate from a Period: enter a real-space period first.",
+                5_000,
+            )
+            return
+
+        pixel_size = self.roi_radius() * period / self.N1
+        unit = self.unit_box.currentText()
+
+        # Apply to the datacube calibration (R pixel size is isotropic).
+        self.datacube.calibration.set_R_pixel_size(pixel_size)
+        self.datacube.calibration.set_R_pixel_units(unit.replace("Å", "A"))
+
+        # Refresh the real-space scale bar through the versioned API.
+        self.api.set_scalebar(
+            "real_space",
+            self.datacube.calibration.get_R_pixel_size(),
+            format_unit(self.datacube.calibration.get_R_pixel_units()),
+        )
+
+        # Reflect the new calibration back into the parent dialog.
+        self.parent_dialog.realspace_unit_box.setCurrentText(unit)
+        self.parent_dialog.realspace_pix_box.setText(f"{pixel_size:g}")
+        self.parent_dialog.realspace_fov_box.setText(
+            f"{pixel_size * self.datacube.R_Ny:g}"
+        )
 
         self.close()
