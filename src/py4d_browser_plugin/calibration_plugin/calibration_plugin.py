@@ -376,16 +376,6 @@ class CalibrateFromPeriodDialog(QDialog):
     """
     Calibrate the real-space pixel size from a periodicity in the virtual
     image.
-
-    The FFT of the virtual image is shown with zero frequency at the center
-    and a fixed-center circular ROI. The user sizes the ROI onto a known
-    spatial-frequency peak, enters the corresponding real-space period, and
-    the implied pixel size is computed and applied to the calibration.
-
-    The FFT is rendered like the result pane — transposed and forced to a
-    square rect — so the frequency axis is isotropic in the view and a
-    circular ROI is a single spatial frequency at any angle. That is what
-    lets a non-square scan (R_Nx != R_Ny) be calibrated with one radius.
     """
 
     def __init__(self, api, parent_dialog):
@@ -486,10 +476,7 @@ class CalibrateFromPeriodDialog(QDialog):
         button_layout.addWidget(calibrate_button)
         layout.addLayout(button_layout)
 
-        # Size the FFT to roughly half the main window wide. ``api.qt_window``
-        # is only a zero-size parent and a QDialog is itself top-level, so find
-        # the real window by walking the parent chain; fall back to a fixed
-        # size if it has no width yet.
+        # Size the FFT to roughly half the main window width
         top = self
         while top.parent() is not None:
             top = top.parent()
