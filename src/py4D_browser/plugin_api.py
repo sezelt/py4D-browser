@@ -86,6 +86,8 @@ class PluginAPI1:
         self.set_diffraction_image = partial(viewer.set_diffraction_image)
         self.set_result_image = partial(viewer.set_result_image)
         self.set_scalebar = partial(viewer.set_scalebar)
+        # Recompute the result-pane scale bar from the current calibration.
+        self.refresh_result_scale_bar = partial(viewer.refresh_result_scale_bar)
 
         # Replace the currently loaded datacube (see set_datacube in
         # menu_actions.py). `refresh` (default True) triggers the normal

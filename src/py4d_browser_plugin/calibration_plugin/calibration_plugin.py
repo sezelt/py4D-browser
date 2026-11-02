@@ -366,6 +366,10 @@ class CalibrateDialog(QDialog):
             format_unit(self.datacube.calibration.get_Q_pixel_units()),
         )
 
+        # The result bar (FFT / EWPC) only updates on a result-view re-render,
+        # which closing doesn't trigger — recompute it from the new calibration.
+        self.api.refresh_result_scale_bar()
+
         print("New calibration")
         print(self.datacube.calibration)
 

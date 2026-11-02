@@ -174,6 +174,33 @@ def set_result_image(
     self.set_scalebar("result", pixel_size, pixel_units)
 
 
+def refresh_result_scale_bar(self: "DataViewer"):
+    # The result scale bar is only set when the result view re-renders, but a
+    # calibration change doesn't re-render it — so recompute it from the current
+    # calibration and mode.
+    if self.datacube is None:
+        return
+
+    mode = self.result_source_action_group.checkedAction().text()
+    calib = self.datacube.calibration
+
+    if mode in ("Virtual Image FFT", "Virtual Image FFT (complex)"):
+        # A visible 3D volume tab renders the 3D FFT (its own scale); the 2D
+        # result bar is not refreshed.
+        if mode == "Virtual Image FFT" and self._visible_volume_tab() is not None:
+            return
+        pixel_size = 1.0 / calib.get_R_pixel_size() / self.datacube.R_Ny
+        pixel_units = format_unit(f"{calib.get_R_pixel_units()}⁻¹")
+    elif mode == "EWPC":
+        pixel_size = 1.0 / calib.get_Q_pixel_size() / self.datacube.Q_Ny
+        pixel_units = format_unit(f"{calib.get_Q_pixel_units()}⁻¹")
+    else:
+        # Plugin-owned result pane; it sets its own scale bar.
+        return
+
+    self.set_scalebar("result", pixel_size, pixel_units)
+
+
 def _render_result_image(
     self: "DataViewer", reset=False, auto_level: Optional[bool] = None
 ):

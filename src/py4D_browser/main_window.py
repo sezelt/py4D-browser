@@ -108,6 +108,7 @@ class DataViewer(QMainWindow):
 
     from py4D_browser.result_pane import (
         set_result_image,
+        refresh_result_scale_bar,
         _render_result_image,
         _render_result_volume,
         _update_result_volume_display,
